@@ -1,0 +1,70 @@
+import { create } from 'zustand';
+import { Message, Capture } from '../types';
+
+interface SearchResult {
+  path: string;
+  text: string;
+  score: number;
+}
+
+interface AppState {
+  messages: Message[];
+  captures: Capture[];
+  selectedCapture: Capture | null;
+  searchResults: SearchResult[];
+  isHistoryOpen: boolean;
+  toastMessage: string | null;
+  
+  addMessage: (msg: Message) => void;
+  setCaptures: (caps: Capture[]) => void;
+  selectCapture: (cap: Capture | null) => void;
+  setSearchResults: (results: SearchResult[]) => void;
+  toggleHistory: () => void;
+  showToast: (msg: string) => void;
+  clearToast: () => void;
+  
+  useGpu: boolean;
+  toggleGpu: () => void;
+}
+
+export const useAppStore = create<AppState>((set) => ({
+  messages: [{
+    id: 'welcome',
+    role: 'assistant',
+    content: 'Hello! I am ContextMemory. I can analyze your screen captures. Press `Alt+S` to capture your screen, and select a capture to start a conversation. You can also search your past captures.',
+    timestamp: Date.now()
+  }],
+  captures: [],
+  selectedCapture: null,
+  searchResults: [],
+  isHistoryOpen: false,
+  toastMessage: null,
+
+  addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
+  setCaptures: (caps) => set({ captures: caps }),
+  selectCapture: (cap) => set({ selectedCapture: cap }),
+  setSearchResults: (results) => set({ searchResults: results }),
+  toggleHistory: () => set((state) => ({ isHistoryOpen: !state.isHistoryOpen })),
+  showToast: (msg) => {
+    set({ toastMessage: msg });
+    setTimeout(() => {
+      set({ toastMessage: null });
+    }, 3000);
+  },
+  clearToast: () => set({ toastMessage: null }),
+
+  useGpu: localStorage.getItem('useGpu') === 'true',
+  toggleGpu: () => set((state) => {
+    const newVal = !state.useGpu;
+    localStorage.setItem('useGpu', newVal.toString());
+    
+    // Attempt to notify backend (fire-and-forget)
+    try {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('set_gpu_mode', { useGpu: newVal }).catch(console.error);
+      });
+    } catch (e) {}
+    
+    return { useGpu: newVal };
+  }),
+}));
