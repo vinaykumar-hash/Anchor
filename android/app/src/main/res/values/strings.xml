@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">ContextMemory</string>
+    <string name="accessibility_service_description">Used to extract on-screen context when triggered by the user.</string>
+</resources>
