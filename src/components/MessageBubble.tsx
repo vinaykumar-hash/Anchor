@@ -66,7 +66,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 </div>
                 <div className="flex flex-col justify-center overflow-hidden">
                   <p className="text-sm text-white/80 line-clamp-2 leading-snug">{res.text}</p>
-                  <p className="text-[10px] text-[var(--accent)] mt-1 font-medium">Match Score: {(1.0 - res.score).toFixed(2)}</p>
+                  <p className="text-[10px] text-[var(--accent)] mt-1 font-medium">
+                    Relevance: {Math.max(0, Math.min(100, Math.round((1.0 / (1.0 + res.score)) * 100)))}%
+                  </p>
                 </div>
               </div>
             ))}

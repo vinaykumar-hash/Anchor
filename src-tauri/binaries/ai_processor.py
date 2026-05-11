@@ -128,15 +128,19 @@ class AIManager:
                     handler = Llava15ChatHandler(clip_model_path=str(PROJ_MODEL))
             except ImportError:
                 pass
-            # Note: v0.3.22 CPU version will just ignore this if compiled without CUDA,
-            # but if they install a CUDA wheel later, this seamlessly enables GPU.
-            layers = 15 if self._use_gpu else 0
+            # Offload all layers to GPU if enabled (-1 is a shortcut for all)
+            layers = -1 if self._use_gpu else 0
+            
+            # Use more threads for faster CPU inference
+            import multiprocessing
+            threads = multiprocessing.cpu_count()
             
             self._vision = Llama(
                 model_path=str(VISION_MODEL),
                 chat_handler=handler,
                 n_ctx=4096,
                 n_gpu_layers=layers,
+                n_threads=threads,
                 n_batch=512,
                 verbose=False,
             )
@@ -215,30 +219,39 @@ class AIManager:
         try:
             llm = self._llm()
 
-            # Temporarily bypass the CLIP handler (don't delete it, just set aside)
-            saved_handler = llm.chat_handler
-            llm.chat_handler = None
+            # Use chat completion for better instruction following
+            messages = [
+                {"role": "system", "content": "You are a helpful memory assistant. Answer the user's question using ONLY the provided memories. Be conversational and concise. If you don't know the answer, say so."},
+                {"role": "user", "content": f"Here are my memories:\n{ctx}\n\nQuestion: {query}"}
+            ]
 
-            # Use raw text completion (lighter than chat completion)
-            prompt = (
-                "You are an intelligent memory assistant. "
-                "Answer the user's question using ONLY the provided memories. "
-                "Be conversational and concise.\n\n"
-                f"MEMORIES:\n{ctx}\n\n"
-                f"Question: {query}\n\n"
-                "Answer:"
-            )
-
-            resp = llm(
-                prompt=prompt,
-                max_tokens=256,
-                stop=["\nQuestion:", "\nMEMORIES:", "\n\n\n"],
+            resp = llm.create_chat_completion(
+                messages=messages,
+                max_tokens=512,
+                temperature=0.3,
                 repeat_penalty=1.2,
+                stream=True
             )
-            answer = resp["choices"][0]["text"].strip()
+            
+            full_answer = ""
+            for chunk in resp:
+                if "choices" in chunk and len(chunk["choices"]) > 0:
+                    delta = chunk["choices"][0].get("delta", {})
+                    if "content" in delta:
+                        text = delta["content"]
+                        full_answer += text
+                        _send({
+                            "status": "success", 
+                            "action": "ask_chunk", 
+                            "chunk": text,
+                            "query": query
+                        })
+            
+            answer = full_answer.strip()
 
-            # Restore the CLIP handler for future screenshots
-            llm.chat_handler = saved_handler
+        except Exception:
+            # Fallback restoration in case of crash
+            pass
 
         except Exception as exc:
             # Fallback: present the extracted memories directly (no LLM needed)

@@ -8,7 +8,9 @@
 }
 
 /* Base styles for the Tauri transparent window */
-html, body, #root {
+html,
+body,
+#root {
   background-color: transparent !important;
   margin: 0;
   padding: 0;
@@ -25,8 +27,10 @@ html, body, #root {
 
 /* Hide scrollbar for IE, Edge and Firefox */
 .no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
 }
 
 /* Glassmorphism utilities */

@@ -14,15 +14,16 @@ interface AppState {
   searchResults: SearchResult[];
   isHistoryOpen: boolean;
   toastMessage: string | null;
-  
+
   addMessage: (msg: Message) => void;
+  updateMessage: (id: string, content: string) => void;
   setCaptures: (caps: Capture[]) => void;
   selectCapture: (cap: Capture | null) => void;
   setSearchResults: (results: SearchResult[]) => void;
   toggleHistory: () => void;
   showToast: (msg: string) => void;
   clearToast: () => void;
-  
+
   useGpu: boolean;
   toggleGpu: () => void;
 }
@@ -41,6 +42,9 @@ export const useAppStore = create<AppState>((set) => ({
   toastMessage: null,
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
+  updateMessage: (id, content) => set((state) => ({
+    messages: state.messages.map(m => m.id === id ? { ...m, content } : m)
+  })),
   setCaptures: (caps) => set({ captures: caps }),
   selectCapture: (cap) => set({ selectedCapture: cap }),
   setSearchResults: (results) => set({ searchResults: results }),
@@ -57,14 +61,14 @@ export const useAppStore = create<AppState>((set) => ({
   toggleGpu: () => set((state) => {
     const newVal = !state.useGpu;
     localStorage.setItem('useGpu', newVal.toString());
-    
+
     // Attempt to notify backend (fire-and-forget)
     try {
       import('@tauri-apps/api/core').then(({ invoke }) => {
         invoke('set_gpu_mode', { useGpu: newVal }).catch(console.error);
       });
-    } catch (e) {}
-    
+    } catch (e) { }
+
     return { useGpu: newVal };
   }),
 }));

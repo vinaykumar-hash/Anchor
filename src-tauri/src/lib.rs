@@ -199,7 +199,40 @@ async fn ask_agent(query: String, app: tauri::AppHandle) -> Result<String, Strin
         "query": query
     });
     
-    communicate_with_sidecar(&app, payload)
+    let state: State<AiSidecar> = app.state();
+    let mut io_guard = state.io.lock().unwrap();
+    
+    if io_guard.is_none() {
+        *io_guard = Some(init_sidecar(&app)?);
+    }
+    
+    if let Some((stdin, stdout)) = io_guard.as_mut() {
+        let mut json_str = payload.to_string();
+        json_str.push('\n');
+        
+        stdin.write_all(json_str.as_bytes()).map_err(|e| format!("Write error: {}", e))?;
+        stdin.flush().map_err(|e| format!("Flush error: {}", e))?;
+        
+        loop {
+            let mut response = String::new();
+            stdout.read_line(&mut response).map_err(|e| format!("Read error: {}", e))?;
+            
+            let val: Value = serde_json::from_str(&response).map_err(|e| format!("JSON parse error: {}", e))?;
+            let action = val.get("action").and_then(|a| a.as_str()).unwrap_or("");
+            
+            if action == "ask_chunk" {
+                if let Some(chunk) = val.get("chunk").and_then(|c| c.as_str()) {
+                    let _ = app.emit("ai-chunk", chunk);
+                }
+            } else if action == "ask" {
+                return Ok(response);
+            } else {
+                return Ok(response);
+            }
+        }
+    } else {
+        Err("Failed to initialize sidecar IO".into())
+    }
 }
 
 #[tauri::command]
@@ -280,8 +313,8 @@ pub fn run() {
                 }
             })?;
             
-            // Alt+Space for Chat Toggle
-            let chat_shortcut = Shortcut::from_str("Alt+Space").unwrap();
+            // Alt+Shift+Space for Chat Toggle
+            let chat_shortcut = Shortcut::from_str("Alt+Shift+Space").unwrap();
             app.global_shortcut().on_shortcut(chat_shortcut, move |app, shortcut, event| {
                 if event.state == ShortcutState::Pressed {
                     toggle_chat_window(app.clone());
