@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import com.example.contextmemory.ai.ModelManager
 import com.example.contextmemory.db.MemoryStorage
+import com.example.contextmemory.sync.SyncClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -29,6 +30,8 @@ class ContextExtractionService : AccessibilityService() {
     private var isVolumeDownPressed = false
     
     private lateinit var memoryStorage: MemoryStorage
+    private lateinit var syncServer: com.example.contextmemory.sync.SyncServer
+    private lateinit var deviceDiscovery: com.example.contextmemory.sync.DeviceDiscovery
     private val serviceScope = CoroutineScope(Dispatchers.IO)
 
     override fun onServiceConnected() {
@@ -36,12 +39,20 @@ class ContextExtractionService : AccessibilityService() {
         Log.d(TAG, "Accessibility Service Connected")
         
         memoryStorage = MemoryStorage(this)
+        syncServer = com.example.contextmemory.sync.SyncServer(this, memoryStorage)
+        deviceDiscovery = com.example.contextmemory.sync.DeviceDiscovery(this)
+
         serviceScope.launch {
             memoryStorage.init()
             // Initialize the shared model engine so we can use vision
             Log.d(TAG, "Initializing ModelManager from service...")
             ModelManager.initialize(this@ContextExtractionService)
-            Log.d(TAG, "ModelManager ready: ${ModelManager.isReady.value}")
+            
+            // Start sync components in background
+            syncServer.start()
+            deviceDiscovery.registerService(8473)
+            deviceDiscovery.startDiscovery()
+            Log.d(TAG, "Sync server & discovery active in background service")
         }
     }
 
@@ -158,7 +169,22 @@ class ContextExtractionService : AccessibilityService() {
                 memoryStorage.insertMemory(textToStore, packageName, screenshotPath)
                 Log.d(TAG, "Context saved! Text: ${textToStore.take(100)}")
 
-                // 5. Confirm with toast
+                // 5. Auto-sync if paired
+                val pairedIp = memoryStorage.getSyncedIp()
+                if (pairedIp != null) {
+                    serviceScope.launch {
+                        try {
+                            val syncClient = SyncClient(memoryStorage)
+                            syncClient.syncWith(pairedIp)
+                            syncClient.close()
+                            Log.d(TAG, "🚀 Auto-sync push to $pairedIp successful")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Auto-sync push failed", e)
+                        }
+                    }
+                }
+
+                // 6. Confirm with toast
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@ContextExtractionService,
@@ -239,10 +265,21 @@ class ContextExtractionService : AccessibilityService() {
     }
 
     private fun traverseNode(node: AccessibilityNodeInfo, stringBuilder: StringBuilder) {
-        if (node.text != null && node.text.isNotBlank()) {
-            stringBuilder.append(node.text).append("\n")
-        } else if (node.contentDescription != null && node.contentDescription.isNotBlank()) {
-            stringBuilder.append(node.contentDescription).append("\n")
+        val text = node.text?.toString()?.trim()
+        val contentDesc = node.contentDescription?.toString()?.trim()
+        val resId = node.viewIdResourceName?.split("/")?.lastOrNull()
+
+        // Prioritize nodes with text or descriptions
+        if (!text.isNullOrBlank() || !contentDesc.isNullOrBlank()) {
+            val label = text ?: contentDesc!!
+            
+            // Skip massive text blocks (like Terms of Service) to save token budget
+            if (label.length < 500) {
+                if (resId != null) {
+                    stringBuilder.append("[$resId]: ")
+                }
+                stringBuilder.append(label).append("\n")
+            }
         }
 
         for (i in 0 until node.childCount) {

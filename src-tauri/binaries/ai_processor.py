@@ -68,9 +68,116 @@ DB_PATH      = APP_DATA / "lancedb"
 MODELS_PATH  = APP_DATA / "models"
 VISION_MODEL = MODELS_PATH / "gemma-4-vision.gguf"
 PROJ_MODEL   = MODELS_PATH / "gemma-4-vision-mmproj.gguf"
+CONFIG_PATH  = APP_DATA / "sync_config.json"
 
 os.makedirs(DB_PATH, exist_ok=True)
 os.makedirs(MODELS_PATH, exist_ok=True)
+
+def save_paired_ip(ip):
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump({"paired_ip": ip}, f)
+    except Exception:
+        pass
+
+def get_paired_ip():
+    try:
+        if CONFIG_PATH.exists():
+            with open(CONFIG_PATH, "r") as f:
+                return json.load(f).get("paired_ip")
+    except Exception:
+        pass
+    return None
+
+def trigger_auto_sync(mgr):
+    """Trigger a full bidirectional sync with the paired IP."""
+    ip = get_paired_ip()
+    if not ip:
+        return
+        
+    # We use the existing sync_with logic but in a background thread
+    def run_sync():
+        try:
+            # We don't want to spam IPC with results for every auto-push,
+            # so we just call a version of the sync logic that doesn't use _send()
+            _perform_background_sync(mgr, ip)
+        except Exception:
+            pass
+            
+    threading.Thread(target=run_sync, daemon=True).start()
+
+def _perform_background_sync(mgr, target_ip):
+    import urllib.request
+    import sys
+    base_url = f"http://{target_ip}:8473"
+    print(f"[Sync] Attempting auto-sync with phone at {target_ip}...", file=sys.stderr)
+    
+    try:
+        table = mgr._db()
+        embedder = mgr._embedder()
+
+        # 1. Pull from remote
+        try:
+            with urllib.request.urlopen(f"{base_url}/sync/entries", timeout=15) as resp:
+                remote_data = json.loads(resp.read().decode())
+            print(f"[Sync] Connected to phone. Pulling data...", file=sys.stderr)
+        except Exception as e:
+            print(f"[Sync] Failed to reach phone at {target_ip}: {e}", file=sys.stderr)
+            return
+
+        existing = set()
+        try:
+            rows = table.to_pandas()
+            for _, row in rows.iterrows():
+                existing.add(str(row.get("text", ""))[:80].lower())
+        except Exception: pass
+
+        imported = 0
+        for entry in remote_data.get("entries", []):
+            text = entry.get("text", "")
+            if text[:80].lower() not in existing:
+                vec = embedder.encode(text).tolist()
+                table.add([{
+                    "vector": vec,
+                    "text": text,
+                    "image_path": "",
+                    "timestamp": datetime.now().isoformat(),
+                }])
+                existing.add(text[:80].lower())
+                imported += 1
+        
+        if imported > 0:
+            print(f"[Sync] Imported {imported} new memories from phone.", file=sys.stderr)
+
+        # 2. Push to remote
+        local_rows = table.to_pandas()
+        local_entries = []
+        for _, row in local_rows.iterrows():
+            ts_str = str(row.get("timestamp", ""))
+            try:
+                ts_epoch = int(datetime.fromisoformat(ts_str).timestamp() * 1000)
+            except Exception: ts_epoch = 0
+                
+            local_entries.append({
+                "text": str(row.get("text", "")),
+                "packageName": "pc",
+                "timestamp": ts_epoch,
+                "screenshotFilename": "",
+                "sourceDevice": "pc",
+            })
+
+        push_body = json.dumps({"entries": local_entries}).encode("utf-8")
+        push_req = urllib.request.Request(
+            f"{base_url}/sync/entries",
+            data=push_body,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(push_req, timeout=15) as resp:
+            print(f"[Sync] Successfully pushed PC memories to phone.", file=sys.stderr)
+            
+    except Exception as e:
+        print(f"[Sync] Error during background sync: {e}", file=sys.stderr)
 
 
 # ── lazy-loaded AI manager ──────────────────────────────────────────
@@ -277,6 +384,15 @@ class AIManager:
 def main():
     mgr = AIManager()
 
+    # Start the sync HTTP server in a background thread
+    try:
+        from sync_server import set_ai_manager, start_sync_server, get_local_ip, SYNC_PORT
+        set_ai_manager(mgr)
+        start_sync_server()
+    except Exception as exc:
+        import sys
+        print(f"[SyncServer] Failed to import/start: {exc}", file=sys.stderr)
+
     while True:
         req = _recv()
         if req is None:            # stdin closed → exit
@@ -289,6 +405,8 @@ def main():
             if action == "process":
                 path = req["path"]
                 desc = mgr.process_image(path)
+                # Auto-push to paired device
+                trigger_auto_sync(mgr)
                 _send({"status": "success", "action": "process",
                        "path": path, "description": desc})
 
@@ -308,6 +426,113 @@ def main():
                 use_gpu = req.get("use_gpu", False)
                 mgr.set_gpu_mode(use_gpu)
                 _send({"status": "success", "action": "set_gpu_mode", "use_gpu": use_gpu})
+
+            elif action == "sync_status":
+                try:
+                    ip = get_local_ip()
+                    port = SYNC_PORT
+                    paired_ip = get_paired_ip()
+                except Exception:
+                    ip = "unknown"
+                    port = 8473
+                    paired_ip = None
+                count = 0
+                try:
+                    count = mgr._db().count_rows()
+                except Exception:
+                    pass
+                _send({"status": "success", "action": "sync_status",
+                       "ip": ip, "port": port, "entryCount": count,
+                       "pairedIp": paired_ip})
+
+            elif action == "sync_with":
+                target_ip = req.get("ip", "").strip()
+                target_port = req.get("port", 8473)
+                base_url = f"http://{target_ip}:{target_port}"
+
+                import urllib.request, urllib.error
+
+                try:
+                    # 1. Pull remote entries
+                    pull_req = urllib.request.Request(f"{base_url}/sync/entries")
+                    with urllib.request.urlopen(pull_req, timeout=10) as resp:
+                        remote_data = json.loads(resp.read().decode())
+
+                    remote_entries = remote_data.get("entries", [])
+                    table = mgr._db()
+                    embedder = mgr._embedder()
+
+                    # Get existing text keys for dedup
+                    existing = set()
+                    try:
+                        rows = table.to_pandas()
+                        for _, row in rows.iterrows():
+                            existing.add(str(row.get("text", ""))[:80].lower())
+                    except Exception:
+                        pass
+
+                    imported = 0
+                    skipped = 0
+                    for entry in remote_entries:
+                        text = entry.get("text", "")
+                        text_key = text[:80].lower()
+                        if text_key in existing:
+                            skipped += 1
+                            continue
+                        vec = embedder.encode(text).tolist()
+                        table.add([{
+                            "vector": vec,
+                            "text": text,
+                            "image_path": "",
+                            "timestamp": datetime.now().isoformat(),
+                        }])
+                        existing.add(text_key)
+                        imported += 1
+
+                    # 2. Push local entries to remote
+                    local_rows = table.to_pandas()
+                    local_entries = []
+                    for _, row in local_rows.iterrows():
+                        ts_str = str(row.get("timestamp", ""))
+                        try:
+                            # Convert ISO string to epoch ms
+                            ts_epoch = int(datetime.fromisoformat(ts_str).timestamp() * 1000)
+                        except Exception:
+                            ts_epoch = 0
+                            
+                        local_entries.append({
+                            "text": str(row.get("text", "")),
+                            "packageName": "pc",
+                            "timestamp": ts_epoch,
+                            "screenshotFilename": "",
+                            "sourceDevice": "pc",
+                        })
+
+                    push_body = json.dumps({"entries": local_entries}).encode("utf-8")
+                    push_req = urllib.request.Request(
+                        f"{base_url}/sync/entries",
+                        data=push_body,
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(push_req, timeout=30) as resp:
+                        push_result = json.loads(resp.read().decode())
+
+                    exported = push_result.get("imported", 0)
+
+                    # Pair successfully
+                    save_paired_ip(ip)
+
+                    _send({"status": "success", "action": "sync_with",
+                           "imported": imported, "exported": exported,
+                           "skipped": skipped})
+
+                except urllib.error.URLError as e:
+                    _send({"status": "error", "action": "sync_with",
+                           "message": f"Cannot reach {base_url}: {e.reason}"})
+                except Exception as e:
+                    _send({"status": "error", "action": "sync_with",
+                           "message": str(e)})
 
             else:
                 _send({"status": "error",

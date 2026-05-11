@@ -3,14 +3,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store/useAppStore';
 import { MessageBubble } from './MessageBubble';
 import { HistorySidebar } from './HistorySidebar';
+import { SyncPanel } from './SyncPanel';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Send, History, Sparkles, X, Settings, Cpu, Zap } from 'lucide-react';
+import { Send, History, Sparkles, X, Settings, Cpu, Zap, Wifi } from 'lucide-react';
 
 export function ChatInterface() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSyncOpen, setIsSyncOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { messages, addMessage, updateMessage, selectedCapture, selectCapture, toggleHistory, isHistoryOpen, useGpu, toggleGpu } = useAppStore();
@@ -195,6 +197,13 @@ export function ChatInterface() {
             <Settings size={16} />
           </button>
           <button
+            onClick={() => setIsSyncOpen(true)}
+            className={`p-1.5 rounded-md transition-colors ${isSyncOpen ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/60 hover:text-white'}`}
+            title="Device Sync"
+          >
+            <Wifi size={16} />
+          </button>
+          <button
             onClick={toggleHistory}
             className={`p-1.5 rounded-md transition-colors ${isHistoryOpen ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/60 hover:text-white'}`}
             title="Toggle History (Alt+H)"
@@ -350,6 +359,11 @@ export function ChatInterface() {
               </motion.div>
             </motion.div>
           )}
+        </AnimatePresence>
+
+        {/* Sync Panel */}
+        <AnimatePresence>
+          {isSyncOpen && <SyncPanel onClose={() => setIsSyncOpen(false)} />}
         </AnimatePresence>
       </div>
     </motion.div>

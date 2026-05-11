@@ -1,6 +1,7 @@
 package com.example.contextmemory.ui
 
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +25,9 @@ import androidx.compose.ui.unit.sp
 import com.example.contextmemory.ai.GemmaInferenceModel
 import com.example.contextmemory.db.MemoryEntry
 import com.example.contextmemory.db.MemoryStorage
+import com.example.contextmemory.sync.DeviceDiscovery
+import com.example.contextmemory.sync.SyncClient
+import com.example.contextmemory.sync.SyncServer
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -46,6 +50,12 @@ fun ChatScreen() {
     val memoryStorage = remember { MemoryStorage(context) }
     val gemmaModel = remember { GemmaInferenceModel(context) }
     
+    // Sync infrastructure
+    val syncServer = remember { SyncServer(context, memoryStorage) }
+    val syncClient = remember { SyncClient(memoryStorage) }
+    val deviceDiscovery = remember { DeviceDiscovery(context) }
+    var showSyncScreen by remember { mutableStateOf(false) }
+    
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     // Store pending screenshots for the current generation
@@ -63,6 +73,58 @@ fun ChatScreen() {
         gemmaModel.initialize()
     }
 
+    // Auto-Sync Logic: When a device is discovered, sync immediately (limit to once per minute)
+    val discoveredDevices by deviceDiscovery.discoveredDevices.collectAsState()
+    val lastSyncedTimes = remember { mutableMapOf<String, Long>() }
+    
+    LaunchedEffect(discoveredDevices) {
+        val now = System.currentTimeMillis()
+        discoveredDevices.forEach { device ->
+            val lastSync = lastSyncedTimes[device.ip] ?: 0L
+            if (now - lastSync > 60_000) { // Only auto-sync once per minute
+                Log.d("ChatScreen", "🔄 Auto-syncing with ${device.name} at ${device.ip}")
+                lastSyncedTimes[device.ip] = now
+                coroutineScope.launch {
+                    try {
+                        syncClient.syncWith(device.ip, device.port)
+                        Log.d("ChatScreen", "✅ Auto-sync with ${device.ip} successful")
+                    } catch (e: Exception) {
+                        Log.e("ChatScreen", "❌ Auto-sync with ${device.ip} failed", e)
+                    }
+                }
+            }
+        }
+    }
+
+    // Periodic Sync (Every 5 minutes for the Paired IP)
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(300_000) // 5 minutes
+            val pairedIp = memoryStorage.getSyncedIp()
+            if (pairedIp != null) {
+                Log.d("ChatScreen", "🕒 Periodic background sync starting...")
+                try {
+                    syncClient.syncWith(pairedIp)
+                    Log.d("ChatScreen", "✅ Periodic sync successful")
+                } catch (e: Exception) {
+                    Log.e("ChatScreen", "❌ Periodic sync failed", e)
+                }
+            }
+        }
+    }
+
+    // Show sync screen if toggled
+    if (showSyncScreen) {
+        SyncScreen(
+            memoryStorage = memoryStorage,
+            syncServer = syncServer,
+            syncClient = syncClient,
+            deviceDiscovery = deviceDiscovery,
+            onBack = { showSyncScreen = false }
+        )
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,6 +133,9 @@ fun ChatScreen() {
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 ),
                 actions = {
+                    TextButton(onClick = { showSyncScreen = true }) {
+                        Text("🔄 Sync", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
                     if (!isModelLoaded) {
                         Text(
                             text = initStatus,

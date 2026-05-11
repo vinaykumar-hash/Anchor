@@ -61,22 +61,24 @@ class GemmaInferenceModel(private val context: Context) {
                 raw.replace(Regex("Active App:.*?\n"), "")
                     .replace("--- Screen Content ---", "")
                     .replace("--- OCR Text ---", "")
-                    .replace(Regex("Google Account:.*"), "")
-                    .replace(Regex("com\\.[a-z.]+"), "")
                     .replace(Regex("\\s+"), " ")
                     .trim()
-                    .take(200)
+                    .take(1000) // Increased from 200 to 1000 to keep product names
             }
             .filter { it.length > 5 }
             .distinct()
 
         // Build the system instruction with context
         val systemPrompt = if (cleanedContext.isNotEmpty()) {
-            "You are a helpful assistant. Answer the user's question based on the following screen context:\n" +
+            "You are an expert at analyzing the user's past screen history. " +
+            "The user will ask questions about what they saw on their screen. " +
+            "Use the provided screen memories below to answer accurately. " +
+            "If the information is in the context, state it clearly. " +
+            "Screen Context:\n" +
                 cleanedContext.joinToString("\n") { "- $it" } +
-                "\nBe concise. Answer in 1-2 sentences."
+                "\nBe concise and factual. Answer in 1-2 sentences."
         } else {
-            "You are a helpful assistant. Be concise. Answer in 1-2 sentences."
+            "You are an expert at analyzing the user's screen history. No relevant memories were found for this query."
         }
 
         val debugPrompt = "📋 SYSTEM:\n$systemPrompt\n\n💬 USER: $userQuery\n\n📦 CONTEXT ENTRIES: ${cleanedContext.size}\n" +

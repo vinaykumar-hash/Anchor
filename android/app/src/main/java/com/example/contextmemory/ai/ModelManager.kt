@@ -106,14 +106,16 @@ object ModelManager {
             Log.d(TAG, "📝 Starting text summarization...")
             val startTime = System.currentTimeMillis()
 
-            // Truncate input to avoid overwhelming the model
-            val truncated = rawText.take(500)
+            // Truncate input to avoid overwhelming the model, but keep enough for product names
+            val truncated = rawText.take(1500)
 
             val config = ConversationConfig(
                 systemInstruction = Contents.of(
-                    "Summarize the following screen content in 1-2 short sentences. " +
-                    "Focus on: what app is shown, what the main content is about, and any key information visible. " +
-                    "Be factual and concise. Do NOT add any commentary."
+                    "You are a highly detailed screen analysis tool. " +
+                    "Analyze the provided UI text and summarize it in 1-2 sentences. " +
+                    "CRITICAL: Always include specific proper nouns like Product Names, Item Titles, Prices, and User Names if visible. " +
+                    "Do NOT just say 'a product' or 'an interface'; say exactly WHAT product or WHICH interface. " +
+                    "Format: [App Name] - [Action/Content] - [Specific Details]."
                 ),
                 samplerConfig = SamplerConfig(topK = 5, topP = 0.9, temperature = 0.3)
             )

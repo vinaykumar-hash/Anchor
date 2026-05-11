@@ -68,4 +68,12 @@ dependencies {
 
     // Gson for JSON persistence
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Ktor for cross-device sync server + client
+    val ktorVersion = "3.1.3"
+    implementation("io.ktor:ktor-server-cio:$ktorVersion")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
+    implementation("io.ktor:ktor-serialization-gson:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio:$ktorVersion")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
 }

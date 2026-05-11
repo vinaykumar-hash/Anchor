@@ -246,6 +246,26 @@ async fn set_gpu_mode(useGpu: bool, app: tauri::AppHandle) -> Result<String, Str
 }
 
 #[tauri::command]
+async fn get_sync_status(app: tauri::AppHandle) -> Result<String, String> {
+    let payload = serde_json::json!({
+        "action": "sync_status"
+    });
+    
+    communicate_with_sidecar(&app, payload)
+}
+
+#[tauri::command]
+async fn sync_with(ip: String, port: i32, app: tauri::AppHandle) -> Result<String, String> {
+    let payload = serde_json::json!({
+        "action": "sync_with",
+        "ip": ip,
+        "port": port
+    });
+    
+    communicate_with_sidecar(&app, payload)
+}
+
+#[tauri::command]
 fn toggle_chat_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let is_visible = window.is_visible().unwrap_or(false);
@@ -333,6 +353,8 @@ pub fn run() {
             search_context,
             ask_agent,
             set_gpu_mode,
+            get_sync_status,
+            sync_with,
             toggle_chat_window
         ])
         .run(tauri::generate_context!())

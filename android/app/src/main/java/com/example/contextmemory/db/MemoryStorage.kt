@@ -35,6 +35,16 @@ class MemoryStorage(private val context: Context) {
     private lateinit var embeddingModel: EmbeddingModel
     private val memoryStore = mutableListOf<MemoryEntry>()
 
+    private val prefs = context.getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+
+    fun saveSyncedIp(ip: String) {
+        prefs.edit().putString("paired_ip", ip).apply()
+    }
+
+    fun getSyncedIp(): String? {
+        return prefs.getString("paired_ip", null)
+    }
+
     suspend fun init() = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
@@ -123,6 +133,57 @@ class MemoryStorage(private val context: Context) {
             Log.d(TAG, "Top results: ${results.map { "score=${String.format("%.3f", it.second)} text=${it.first.text.take(50)}" }}")
 
             return@withLock results.map { it.first }
+        }
+    }
+
+    /**
+     * Export all entries for sync. Returns raw MemoryEntry list.
+     */
+    suspend fun getAllEntries(): List<MemoryEntry> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadFromFile()
+            memoryStore.toList()
+        }
+    }
+
+    /**
+     * Get entries after a given timestamp (for incremental sync).
+     */
+    suspend fun getEntriesAfter(timestamp: Long): List<MemoryEntry> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadFromFile()
+            memoryStore.filter { it.timestamp > timestamp }
+        }
+    }
+
+    /**
+     * Import a synced entry from another device.
+     * Re-embeds text locally and deduplicates by timestamp (5-second window).
+     */
+    suspend fun insertSyncedEntry(
+        text: String,
+        packageName: String,
+        timestamp: Long,
+        screenshotPath: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadFromFile()
+
+            // Dedup: skip if we already have an entry within 5 seconds with similar text
+            val isDuplicate = memoryStore.any { entry ->
+                Math.abs(entry.timestamp - timestamp) < 5000 &&
+                entry.text.take(80).equals(text.take(80), ignoreCase = true)
+            }
+            if (isDuplicate) {
+                Log.d(TAG, "Skipping duplicate synced entry: ${text.take(50)}")
+                return@withContext false
+            }
+
+            val vector = embeddingModel.generateEmbedding(text)
+            memoryStore.add(MemoryEntry(text, packageName, vector, timestamp, screenshotPath))
+            saveToFile()
+            Log.d(TAG, "Imported synced entry: ${text.take(50)}")
+            return@withContext true
         }
     }
 
