@@ -7,6 +7,7 @@ import android.net.wifi.WifiManager
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -29,6 +30,8 @@ class DeviceDiscovery(private val context: Context) {
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var udpSocket: DatagramSocket? = null
+    @Volatile private var isDiscovering = false
 
     data class DiscoveredDevice(
         val name: String,
@@ -64,6 +67,8 @@ class DeviceDiscovery(private val context: Context) {
      * Register this device as a ContextMemory service on the network.
      */
     fun registerService(port: Int) {
+        if (registrationListener != null) return
+
         // Acquire multicast lock so NSD works reliably
         val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         multicastLock = wifiManager.createMulticastLock("contextmemory_nsd").apply {
@@ -99,6 +104,9 @@ class DeviceDiscovery(private val context: Context) {
      * Start discovering other ContextMemory devices on the network.
      */
     fun startDiscovery() {
+        if (isDiscovering) return
+        isDiscovering = true
+
         // 1. mDNS Discovery
         discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {
@@ -127,11 +135,13 @@ class DeviceDiscovery(private val context: Context) {
 
         // 2. UDP Heartbeat Listener (Secondary Discovery)
         Thread {
+            var socket: DatagramSocket? = null
             try {
-                val socket = java.net.DatagramSocket(8474)
+                socket = DatagramSocket(8474)
+                udpSocket = socket
                 socket.broadcast = true
                 val buffer = ByteArray(1024)
-                while (true) {
+                while (isDiscovering && !socket.isClosed) {
                     val packet = java.net.DatagramPacket(buffer, buffer.size)
                     socket.receive(packet)
                     val data = String(packet.data, 0, packet.length)
@@ -155,7 +165,16 @@ class DeviceDiscovery(private val context: Context) {
                     } catch (e: Exception) {}
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "UDP Listener failed", e)
+                if (isDiscovering) {
+                    Log.e(TAG, "UDP Listener failed", e)
+                } else {
+                    Log.d(TAG, "UDP Listener stopped")
+                }
+            } finally {
+                if (udpSocket === socket) {
+                    udpSocket?.close()
+                    udpSocket = null
+                }
             }
         }.start()
     }
@@ -191,11 +210,16 @@ class DeviceDiscovery(private val context: Context) {
     }
 
     fun stopDiscovery() {
+        isDiscovering = false
         try {
             discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping discovery", e)
         }
+        discoveryListener = null
+        udpSocket?.close()
+        udpSocket = null
+        _discoveredDevices.value = emptyList()
     }
 
     fun unregisterService() {
@@ -204,7 +228,11 @@ class DeviceDiscovery(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error unregistering service", e)
         }
-        multicastLock?.release()
+        registrationListener = null
+        if (multicastLock?.isHeld == true) {
+            multicastLock?.release()
+        }
+        multicastLock = null
     }
 
     fun cleanup() {

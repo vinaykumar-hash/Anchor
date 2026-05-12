@@ -34,8 +34,15 @@ class SyncServer(
         private set
 
     fun start() {
+        if (server != null) {
+            Log.d(TAG, "Sync server already running on port $PORT")
+            return
+        }
+
         scope.launch {
             try {
+                if (server != null) return@launch
+
                 server = embeddedServer(CIO, port = PORT) {
                     install(ContentNegotiation) {
                         gson()
@@ -147,7 +154,7 @@ class SyncServer(
 
     fun stop() {
         server?.stop(1000, 2000)
-        scope.cancel()
+        server = null
         Log.d(TAG, "Sync server stopped")
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.example.contextmemory.ai.ModelManager
 import com.example.contextmemory.ui.ChatScreen
 import com.example.contextmemory.ui.OnboardingScreen
 import com.example.contextmemory.ui.theme.ContextMemoryTheme
@@ -29,5 +30,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        ModelManager.close()
+        super.onDestroy()
+    }
+
+    override fun onStop() {
+        ModelManager.close()
+        super.onStop()
     }
 }

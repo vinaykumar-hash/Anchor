@@ -1,6 +1,10 @@
 package com.example.contextmemory.services
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.os.Build
 import android.util.Log
@@ -14,6 +18,7 @@ import com.example.contextmemory.db.MemoryStorage
 import com.example.contextmemory.sync.SyncClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,6 +30,13 @@ import java.util.concurrent.Executors
 
 class ContextExtractionService : AccessibilityService() {
     private val TAG = "ContextExtractionService"
+
+    companion object {
+        const val ACTION_SYNC_SETTING_CHANGED = "com.example.contextmemory.SYNC_SETTING_CHANGED"
+        const val EXTRA_SYNC_ENABLED = "sync_enabled"
+        const val PREFS_NAME = "sync_prefs"
+        const val KEY_SYNC_ENABLED = "sync_enabled"
+    }
     
     private var isVolumeUpPressed = false
     private var isVolumeDownPressed = false
@@ -34,6 +46,14 @@ class ContextExtractionService : AccessibilityService() {
     private lateinit var deviceDiscovery: com.example.contextmemory.sync.DeviceDiscovery
     private val serviceScope = CoroutineScope(Dispatchers.IO)
 
+    private val syncSettingsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_SYNC_SETTING_CHANGED) return
+            val enabled = intent.getBooleanExtra(EXTRA_SYNC_ENABLED, true)
+            setSyncComponentsEnabled(enabled)
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.d(TAG, "Accessibility Service Connected")
@@ -41,6 +61,7 @@ class ContextExtractionService : AccessibilityService() {
         memoryStorage = MemoryStorage(this)
         syncServer = com.example.contextmemory.sync.SyncServer(this, memoryStorage)
         deviceDiscovery = com.example.contextmemory.sync.DeviceDiscovery(this)
+        registerSyncSettingsReceiver()
 
         serviceScope.launch {
             memoryStorage.init()
@@ -48,11 +69,7 @@ class ContextExtractionService : AccessibilityService() {
             Log.d(TAG, "Initializing ModelManager from service...")
             ModelManager.initialize(this@ContextExtractionService)
             
-            // Start sync components in background
-            syncServer.start()
-            deviceDiscovery.registerService(8473)
-            deviceDiscovery.startDiscovery()
-            Log.d(TAG, "Sync server & discovery active in background service")
+            setSyncComponentsEnabled(isSyncEnabled())
         }
     }
 
@@ -65,7 +82,42 @@ class ContextExtractionService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(syncSettingsReceiver)
+        } catch (e: Exception) {
+            Log.w(TAG, "Sync settings receiver was not registered", e)
+        }
+        setSyncComponentsEnabled(false)
+        ModelManager.close()
+        serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun registerSyncSettingsReceiver() {
+        val filter = IntentFilter(ACTION_SYNC_SETTING_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(syncSettingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(syncSettingsReceiver, filter)
+        }
+    }
+
+    private fun isSyncEnabled(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SYNC_ENABLED, true)
+    }
+
+    private fun setSyncComponentsEnabled(enabled: Boolean) {
+        if (enabled) {
+            syncServer.start()
+            deviceDiscovery.registerService(8473)
+            deviceDiscovery.startDiscovery()
+            Log.d(TAG, "Sync server & discovery active in background service")
+        } else {
+            syncServer.stop()
+            deviceDiscovery.cleanup()
+            Log.d(TAG, "Sync server & discovery stopped by setting")
+        }
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -171,7 +223,7 @@ class ContextExtractionService : AccessibilityService() {
 
                 // 5. Auto-sync if paired
                 val pairedIp = memoryStorage.getSyncedIp()
-                if (pairedIp != null) {
+                if (pairedIp != null && isSyncEnabled()) {
                     serviceScope.launch {
                         try {
                             val syncClient = SyncClient(memoryStorage)

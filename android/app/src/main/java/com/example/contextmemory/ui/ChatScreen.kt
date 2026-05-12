@@ -1,340 +1,509 @@
 package com.example.contextmemory.ui
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.util.Log
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import com.example.contextmemory.ai.GemmaInferenceModel
-import com.example.contextmemory.db.MemoryEntry
 import com.example.contextmemory.db.MemoryStorage
+import com.example.contextmemory.services.ContextExtractionService
 import com.example.contextmemory.sync.DeviceDiscovery
 import com.example.contextmemory.sync.SyncClient
 import com.example.contextmemory.sync.SyncServer
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * A chat message with optional screenshot paths from context.
- */
 data class ChatMessage(
     val text: String,
     val isUser: Boolean,
-    val contextScreenshots: List<String> = emptyList(),
-    val debugInfo: String = ""
+    val contextScreenshots: List<String> = emptyList()
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+private enum class MemoryScreen {
+    Search,
+    Settings,
+    Reference
+}
+
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun ChatScreen() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    
+
     val memoryStorage = remember { MemoryStorage(context) }
     val gemmaModel = remember { GemmaInferenceModel(context) }
-    
-    // Sync infrastructure
     val syncServer = remember { SyncServer(context, memoryStorage) }
     val syncClient = remember { SyncClient(memoryStorage) }
     val deviceDiscovery = remember { DeviceDiscovery(context) }
-    var showSyncScreen by remember { mutableStateOf(false) }
-    
+
+    var activeScreen by remember { mutableStateOf(MemoryScreen.Search) }
+    var selectedScreenshot by remember { mutableStateOf<String?>(null) }
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
-    // Store pending screenshots for the current generation
     var pendingScreenshots by remember { mutableStateOf(listOf<String>()) }
+    val syncPrefs = remember {
+        context.getSharedPreferences(
+            ContextExtractionService.PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+    }
+    var syncEnabled by remember {
+        mutableStateOf(syncPrefs.getBoolean(ContextExtractionService.KEY_SYNC_ENABLED, true))
+    }
 
     val currentStream by gemmaModel.currentStream.collectAsState()
     val isModelLoaded by gemmaModel.isModelLoaded.collectAsState()
     val initStatus by gemmaModel.initStatus.collectAsState()
     val isGenerating by gemmaModel.isGenerating.collectAsState()
-    val lastDebugInfo by gemmaModel.lastDebugInfo.collectAsState()
+    val discoveredDevices by deviceDiscovery.discoveredDevices.collectAsState()
+    val lastSyncedTimes = remember { mutableStateMapOf<String, Long>() }
 
-    // Initialize databases and models
     LaunchedEffect(Unit) {
         memoryStorage.init()
         gemmaModel.initialize()
     }
 
-    // Auto-Sync Logic: When a device is discovered, sync immediately (limit to once per minute)
-    val discoveredDevices by deviceDiscovery.discoveredDevices.collectAsState()
-    val lastSyncedTimes = remember { mutableMapOf<String, Long>() }
-    
+    DisposableEffect(Unit) {
+        onDispose {
+            gemmaModel.close()
+            syncClient.close()
+            deviceDiscovery.cleanup()
+        }
+    }
+
+    LaunchedEffect(syncEnabled) {
+        if (syncEnabled) {
+            deviceDiscovery.startDiscovery()
+        } else {
+            syncServer.stop()
+            deviceDiscovery.cleanup()
+        }
+    }
+
     LaunchedEffect(discoveredDevices) {
+        if (!syncEnabled) return@LaunchedEffect
         val now = System.currentTimeMillis()
         discoveredDevices.forEach { device ->
             val lastSync = lastSyncedTimes[device.ip] ?: 0L
-            if (now - lastSync > 60_000) { // Only auto-sync once per minute
-                Log.d("ChatScreen", "🔄 Auto-syncing with ${device.name} at ${device.ip}")
+            if (now - lastSync > 60_000) {
                 lastSyncedTimes[device.ip] = now
                 coroutineScope.launch {
                     try {
                         syncClient.syncWith(device.ip, device.port)
-                        Log.d("ChatScreen", "✅ Auto-sync with ${device.ip} successful")
                     } catch (e: Exception) {
-                        Log.e("ChatScreen", "❌ Auto-sync with ${device.ip} failed", e)
+                        Log.e("ChatScreen", "Auto-sync with ${device.ip} failed", e)
                     }
                 }
             }
         }
     }
 
-    // Periodic Sync (Every 5 minutes for the Paired IP)
-    LaunchedEffect(Unit) {
+    LaunchedEffect(syncEnabled) {
+        if (!syncEnabled) return@LaunchedEffect
+
         while (true) {
-            kotlinx.coroutines.delay(300_000) // 5 minutes
+            kotlinx.coroutines.delay(300_000)
             val pairedIp = memoryStorage.getSyncedIp()
             if (pairedIp != null) {
-                Log.d("ChatScreen", "🕒 Periodic background sync starting...")
                 try {
                     syncClient.syncWith(pairedIp)
-                    Log.d("ChatScreen", "✅ Periodic sync successful")
                 } catch (e: Exception) {
-                    Log.e("ChatScreen", "❌ Periodic sync failed", e)
+                    Log.e("ChatScreen", "Periodic sync failed", e)
                 }
             }
         }
     }
 
-    // Show sync screen if toggled
-    if (showSyncScreen) {
-        SyncScreen(
-            memoryStorage = memoryStorage,
-            syncServer = syncServer,
-            syncClient = syncClient,
-            deviceDiscovery = deviceDiscovery,
-            onBack = { showSyncScreen = false }
-        )
-        return
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("ContextMemory") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                actions = {
-                    TextButton(onClick = { showSyncScreen = true }) {
-                        Text("🔄 Sync", color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                    if (!isModelLoaded) {
-                        Text(
-                            text = initStatus,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            if (!isModelLoaded) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .background(Color(0xFF121212))
-        ) {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(messages) { message ->
-                    ChatBubble(message)
-                }
-                
-                // Show streaming message while generating
-                if (isGenerating || (currentStream.isNotEmpty() && !messages.any { it.text == currentStream })) {
-                    item {
-                        ChatBubble(ChatMessage(
-                            text = if (currentStream.isEmpty()) "Thinking..." else currentStream,
-                            isUser = false
-                        ))
-                    }
-                }
-            }
-
-            // When generation finishes, commit the stream to messages with screenshots
-            LaunchedEffect(isGenerating) {
-                if (!isGenerating && currentStream.isNotEmpty()) {
-                    if (!messages.any { it.text == currentStream }) {
-                        messages = messages + ChatMessage(
-                            text = currentStream,
-                            isUser = false,
-                            contextScreenshots = pendingScreenshots,
-                            debugInfo = lastDebugInfo
-                        )
-                        pendingScreenshots = emptyList()
-                    }
-                }
-            }
-
-            // Input Area
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .background(Color(0xFF1E1E1E), RoundedCornerShape(24.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Ask about your past screen activity...") },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        disabledContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    maxLines = 3
+    LaunchedEffect(isGenerating) {
+        if (!isGenerating && currentStream.isNotBlank()) {
+            if (messages.lastOrNull()?.text != currentStream) {
+                messages = messages + ChatMessage(
+                    text = currentStream,
+                    isUser = false,
+                    contextScreenshots = pendingScreenshots
                 )
-                
-                IconButton(
-                    onClick = {
-                        if (inputText.isNotBlank() && !isGenerating && isModelLoaded) {
-                            val query = inputText
+                pendingScreenshots = emptyList()
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AnimatedContent(
+            targetState = activeScreen,
+            transitionSpec = {
+                val forward = targetState.ordinal > initialState.ordinal
+                if (forward) {
+                    (slideInHorizontally { width -> width } + fadeIn()) togetherWith
+                        (slideOutHorizontally { width -> -width / 3 } + fadeOut())
+                } else {
+                    (slideInHorizontally { width -> -width } + fadeIn()) togetherWith
+                        (slideOutHorizontally { width -> width / 3 } + fadeOut())
+                }
+            },
+            label = "memory-screen"
+        ) { screen ->
+            when (screen) {
+                MemoryScreen.Settings -> {
+                    SettingsScreen(
+                        syncEnabled = syncEnabled,
+                        memoryStorage = memoryStorage,
+                        syncClient = syncClient,
+                        onSyncEnabledChange = { enabled ->
+                            syncEnabled = enabled
+                            syncPrefs.edit()
+                                .putBoolean(ContextExtractionService.KEY_SYNC_ENABLED, enabled)
+                                .apply()
+                            context.sendBroadcast(
+                                Intent(ContextExtractionService.ACTION_SYNC_SETTING_CHANGED)
+                                    .setPackage(context.packageName)
+                                    .putExtra(ContextExtractionService.EXTRA_SYNC_ENABLED, enabled)
+                            )
+                        }
+                    )
+                }
+                MemoryScreen.Reference -> {
+                    ReferenceImageScreen(screenshotPath = selectedScreenshot)
+                }
+                MemoryScreen.Search -> {
+                    MemorySearchScreen(
+                        inputText = inputText,
+                        onInputChange = { inputText = it },
+                        messages = messages,
+                        isGenerating = isGenerating,
+                        isModelLoaded = isModelLoaded,
+                        initStatus = initStatus,
+                        currentStream = currentStream,
+                        onReferenceClick = {
+                            selectedScreenshot = it
+                            activeScreen = MemoryScreen.Reference
+                        },
+                        onSend = {
+                            if (inputText.isBlank() || isGenerating || !isModelLoaded) return@MemorySearchScreen
+                            val query = inputText.trim()
                             inputText = ""
                             messages = messages + ChatMessage(query, isUser = true)
-                            
+
                             coroutineScope.launch {
-                                // 1. Search memory — always, for every question
                                 val retrievedEntries = memoryStorage.searchMemoryEntries(query, limit = 3)
-                                val contextTexts = retrievedEntries.map { it.text }
-                                
-                                // 2. Collect screenshot paths from context entries
                                 pendingScreenshots = retrievedEntries.mapNotNull { it.screenshotPath }
-                                
-                                // 3. Trigger async generation
-                                gemmaModel.generateResponseAsync(query, contextTexts)
+                                gemmaModel.generateResponseAsync(query, retrievedEntries.map { it.text })
                             }
                         }
-                    },
-                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFF6B4EE6))
-                ) {
-                    Text("Send", color = Color(0xFF6B4EE6))
+                    )
                 }
             }
+        }
+
+        FloatingHamburgerButton(
+            isOpen = activeScreen == MemoryScreen.Settings,
+            onClick = {
+                activeScreen = if (activeScreen == MemoryScreen.Settings) {
+                    if (selectedScreenshot != null) MemoryScreen.Reference else MemoryScreen.Search
+                } else {
+                    MemoryScreen.Settings
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 18.dp, end = 24.dp)
+        )
+    }
+}
+
+@Composable
+private fun FloatingHamburgerButton(
+    isOpen: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val rotation by animateFloatAsState(
+        targetValue = if (isOpen) 45f else 0f,
+        label = "hamburger-rotation"
+    )
+    val lastLineWidth by animateDpAsState(
+        targetValue = if (isOpen) 10.dp else 20.dp,
+        label = "hamburger-last-line"
+    )
+
+    IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color(0xFF333333)),
+        colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFF9E9E9E))
+    ) {
+        Column(
+            modifier = Modifier
+                .size(width = 20.dp, height = 16.dp)
+                .rotate(rotation),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.End
+        ) {
+            HamburgerLine(width = 10.dp)
+            HamburgerLine(width = 20.dp)
+            HamburgerLine(width = lastLineWidth)
         }
     }
 }
 
 @Composable
-fun ChatBubble(message: ChatMessage) {
-    val backgroundColor = if (message.isUser) Color(0xFF6B4EE6) else Color(0xFF2A2A2A)
-    val alignment = if (message.isUser) Alignment.CenterEnd else Alignment.CenterStart
-    val shape = if (message.isUser) {
-        RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
-    } else {
-        RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp)
-    }
+private fun HamburgerLine(width: Dp) {
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(3.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF9E9E9E))
+    )
+}
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start
+@Composable
+private fun SettingsScreen(
+    syncEnabled: Boolean,
+    memoryStorage: MemoryStorage,
+    syncClient: SyncClient,
+    onSyncEnabledChange: (Boolean) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    var manualIp by remember { mutableStateOf("") }
+    var isSyncing by remember { mutableStateOf(false) }
+    var syncResult by remember { mutableStateOf<String?>(null) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MemoryBackgroundBrush())
+            .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
-        // Main message bubble
-        Box(
+        Column(
             modifier = Modifier
-                .widthIn(max = 300.dp)
-                .clip(shape)
-                .background(backgroundColor)
-                .padding(12.dp)
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .padding(top = 96.dp, bottom = 28.dp)
         ) {
             Text(
-                text = message.text,
+                text = "Settings",
                 color = Color.White,
-                style = MaterialTheme.typography.bodyMedium
+                fontSize = 34.sp,
+                lineHeight = 36.sp,
+                fontWeight = FontWeight.Bold
             )
-        }
 
-        // Show screenshots used as context (only for AI responses)
-        if (!message.isUser && message.contextScreenshots.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = "📸 Sources (${message.contextScreenshots.size})",
-                color = Color(0xFF888888),
-                fontSize = 12.sp,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-            )
-            
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(message.contextScreenshots) { screenshotPath ->
-                    ScreenshotThumbnail(screenshotPath)
+            Spacer(modifier = Modifier.height(32.dp))
+
+            SettingsPanel {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Sync",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Text(
+                            text = if (syncEnabled) {
+                                "Server, discovery, and background sync are active."
+                            } else {
+                                "Server, discovery, and background sync are stopped."
+                            },
+                            color = Color(0xFF9C9C9C),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Switch(
+                        checked = syncEnabled,
+                        onCheckedChange = onSyncEnabledChange
+                    )
                 }
             }
-        }
 
-        // Debug panel (tap to expand/collapse)
-        if (!message.isUser && message.debugInfo.isNotEmpty()) {
-            var expanded by remember { mutableStateOf(false) }
-            
-            Spacer(modifier = Modifier.height(4.dp))
-            
-            Text(
-                text = if (expanded) "🔧 Hide Debug" else "🔧 Show Debug",
-                color = Color(0xFF666666),
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .clickable { expanded = !expanded }
-                    .padding(start = 4.dp, top = 4.dp)
-            )
-            
-            if (expanded) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF1A1A1A))
-                        .padding(8.dp)
+            Spacer(modifier = Modifier.height(18.dp))
+
+            SettingsPanel {
+                Text(
+                    text = "Manual Sync",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (syncEnabled) {
+                        "Connect to a device by IP address."
+                    } else {
+                        "Turn on Sync to use manual sync."
+                    },
+                    color = Color(0xFF9C9C9C),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    OutlinedTextField(
+                        value = manualIp,
+                        onValueChange = { manualIp = it },
+                        enabled = syncEnabled && !isSyncing,
+                        modifier = Modifier.weight(1f),
+                        placeholder = {
+                            Text(
+                                text = "192.168.1.100",
+                                color = Color(0xFF777777),
+                                fontSize = 12.sp
+                            )
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF72E4EA),
+                            unfocusedBorderColor = Color(0xFF444444),
+                            disabledBorderColor = Color(0xFF303030),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            disabledTextColor = Color(0xFF777777),
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            disabledContainerColor = Color.Transparent,
+                            cursorColor = Color(0xFF72E4EA)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Button(
+                        onClick = {
+                            if (syncEnabled && manualIp.isNotBlank()) {
+                                isSyncing = true
+                                syncResult = null
+                                coroutineScope.launch {
+                                    val targetIp = manualIp.trim()
+                                    val result = syncClient.syncWith(targetIp)
+                                    isSyncing = false
+                                    syncResult = if (result.success) {
+                                        memoryStorage.saveSyncedIp(targetIp)
+                                        "Synced. Imported ${result.imported}, exported ${result.exported}."
+                                    } else {
+                                        result.error ?: "Sync failed."
+                                    }
+                                }
+                            }
+                        },
+                        enabled = syncEnabled && !isSyncing && manualIp.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF72E4EA),
+                            contentColor = Color(0xFF111111),
+                            disabledContainerColor = Color(0xFF333333),
+                            disabledContentColor = Color(0xFF777777)
+                        )
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF111111)
+                            )
+                        } else {
+                            Text("Sync")
+                        }
+                    }
+                }
+
+                syncResult?.let { result ->
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = message.debugInfo,
-                        color = Color(0xFF00FF88),
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp
+                        text = result,
+                        color = if (result.startsWith("Synced")) Color(0xFF72E4EA) else Color(0xFFFF9A9A),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
                     )
                 }
             }
@@ -343,42 +512,360 @@ fun ChatBubble(message: ChatMessage) {
 }
 
 @Composable
-fun ScreenshotThumbnail(path: String) {
-    val bitmap = remember(path) {
-        try {
-            val file = File(path)
-            if (file.exists()) {
-                // Load a downscaled version for the thumbnail
-                val options = BitmapFactory.Options().apply {
-                    inSampleSize = 4  // 1/4 resolution for thumbnail
-                }
-                BitmapFactory.decodeFile(file.absolutePath, options)
-            } else null
-        } catch (e: Exception) {
-            null
-        }
-    }
+private fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF1D1D1D))
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        content = content
+    )
+}
 
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = "Context screenshot",
-            modifier = Modifier
-                .size(width = 120.dp, height = 200.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Color(0xFF444444), RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.Crop
-        )
-    } else {
-        // Fallback if image can't be loaded
+@Composable
+private fun MemorySearchScreen(
+    inputText: String,
+    onInputChange: (String) -> Unit,
+    messages: List<ChatMessage>,
+    isGenerating: Boolean,
+    isModelLoaded: Boolean,
+    initStatus: String,
+    currentStream: String,
+    onReferenceClick: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MemoryBackgroundBrush())
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
         Box(
             modifier = Modifier
-                .size(width = 120.dp, height = 200.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF333333)),
-            contentAlignment = Alignment.Center
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(320.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color(0x4D72E4EA), Color.Transparent),
+                        radius = 520f
+                    )
+                )
+        )
+
+        if (messages.isEmpty() && !isGenerating && currentStream.isBlank()) {
+            LandingTitle(
+                text = if (isModelLoaded) "Search\nThrough\nyour\nmemories" else initStatus,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp),
+                contentPadding = PaddingValues(top = 94.dp, bottom = 122.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                items(messages) { message ->
+                    MemoryMessage(message, onReferenceClick)
+                }
+
+                if (isGenerating) {
+                    item {
+                        ThinkingState(currentStream)
+                    }
+                } else if (currentStream.isNotBlank() && messages.lastOrNull()?.text != currentStream) {
+                    item {
+                        MemoryMessage(
+                            message = ChatMessage(currentStream, isUser = false),
+                            onReferenceClick = onReferenceClick
+                        )
+                    }
+                }
+            }
+        }
+
+        SearchInputBar(
+            value = inputText,
+            onValueChange = onInputChange,
+            enabled = isModelLoaded && !isGenerating,
+            onSend = onSend,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 18.dp, vertical = 16.dp)
+        )
+    }
+}
+
+@Composable
+private fun LandingTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = Color(0xFFECECEC),
+        fontSize = 36.sp,
+        lineHeight = 35.sp,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        modifier = modifier.padding(horizontal = 48.dp)
+    )
+}
+
+@Composable
+private fun MemoryMessage(message: ChatMessage, onReferenceClick: (String) -> Unit) {
+    if (message.isUser) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
         ) {
-            Text("📷", fontSize = 24.sp)
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color(0xFF252525), Color(0xFF191919))
+                        )
+                    )
+                    .padding(horizontal = 19.dp, vertical = 11.dp)
+            ) {
+                Text(
+                    text = message.text,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    lineHeight = 19.sp
+                )
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text = message.text,
+                color = Color(0xFFF0F2F2),
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .padding(start = 3.dp)
+            )
+
+            if (message.contextScreenshots.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(message.contextScreenshots.take(3)) { path ->
+                        ReferenceCard(path = path, onClick = { onReferenceClick(path) })
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun ThinkingState(currentStream: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        if (currentStream.isBlank()) {
+            Text(
+                text = "Thinking...",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy((-5).dp)) {
+                ThinkingDot(Color(0xFFFF7890))
+                ThinkingDot(Color(0xFFB86CDE))
+                ThinkingDot(Color(0xFF6FE2EA))
+            }
+        } else {
+            MemoryMessage(ChatMessage(currentStream, isUser = false), onReferenceClick = {})
+        }
+    }
+}
+
+@Composable
+private fun ThinkingDot(color: Color) {
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(color)
+    )
+}
+
+@Composable
+private fun ReferenceCard(path: String, onClick: () -> Unit) {
+    val bitmap = remember(path) { loadBitmap(path, sampleSize = 4) }
+    Box(
+        modifier = Modifier
+            .size(width = 116.dp, height = 170.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color(0xFF626D6E))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Reference image",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchInputBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 60.dp)
+            .clip(RoundedCornerShape(34.dp))
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(Color(0xFF2B2B2B), Color(0xFF353535))
+                )
+            )
+            .padding(start = 18.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+            placeholder = {
+                Text(
+                    text = "What are you looking for...",
+                    color = Color(0xFF9C9C9C),
+                    fontSize = 12.sp
+                )
+            },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+                cursorColor = Color(0xFF72E4EA),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                disabledTextColor = Color(0xFF888888)
+            ),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
+            singleLine = true
+        )
+
+        IconButton(
+            onClick = onSend,
+            enabled = enabled && value.isNotBlank(),
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color(0xFF8AF1F5), Color(0xFF61D6DD)),
+                        radius = 44f
+                    )
+                ),
+            colors = IconButtonDefaults.iconButtonColors(
+                contentColor = Color(0xFF121212),
+                disabledContentColor = Color(0xFF505050)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Send,
+                contentDescription = "Send",
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReferenceImageScreen(screenshotPath: String?) {
+    val bitmap = remember(screenshotPath) {
+        screenshotPath?.let { loadBitmap(it, sampleSize = 1) }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0x1E72E4EA), Color(0xFF090A0A)),
+                    radius = 900f
+                )
+            )
+            .statusBarsPadding()
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 26.dp)
+                .fillMaxWidth()
+                .height(425.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(Color(0xFFD9D9D9)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Reference image",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            } else {
+                Text(
+                    text = "Reference Image clicked",
+                    color = Color.Black,
+                    fontSize = 18.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryBackgroundBrush(): Brush {
+    return Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF080909),
+            Color(0xFF0B0F0F),
+            Color(0xFF102625)
+        )
+    )
+}
+
+private fun loadBitmap(path: String, sampleSize: Int) = try {
+    val file = File(path)
+    if (file.exists()) {
+        BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        )
+    } else {
+        null
+    }
+} catch (e: Exception) {
+    null
 }

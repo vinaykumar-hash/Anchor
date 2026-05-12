@@ -171,4 +171,12 @@ class GemmaInferenceModel(private val context: Context) {
 
         return response.trimStart('-', ' ', '\n', '>', '*', '|')
     }
+
+    fun close() {
+        _currentStream.value = ""
+        _isGenerating.value = false
+        _isModelLoaded.value = false
+        _initStatus.value = "Closed"
+        ModelManager.close()
+    }
 }
