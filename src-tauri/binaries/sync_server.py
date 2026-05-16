@@ -101,6 +101,12 @@ class SyncHandler(BaseHTTPRequestHandler):
         elif path.startswith("/sync/screenshot/"):
             filename = path.split("/sync/screenshot/", 1)[-1]
             self._handle_screenshot(filename)
+        elif path == "/":
+            self._send_json({
+                "status": "ok",
+                "service": "ContextMemory Sync Server",
+                "message": "The synchronization server is running successfully."
+            })
         else:
             self._send_error(404, "Not found")
 

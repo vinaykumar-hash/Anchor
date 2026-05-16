@@ -1,23 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  --glass-bg: rgba(15, 15, 25, 0.75);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --accent: #7c5cfc;
-  --accent-hover: #9b7fff;
+  --app-bg: #f7f5ef;
+  --surface: #efede8;
+  --surface-strong: #ffffff;
+  --ink: #161616;
+  --muted: #6f6b65;
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(22, 22, 22, 0.08);
+  --accent: #5b82f1;
+  --accent-hover: #416ee8;
+  --sunset: linear-gradient(135deg, #6b7cff 0%, #ff7058 38%, #ffd96d 72%, #fff8d8 100%);
 }
 
-/* Base styles for the Tauri transparent window */
+/* Base styles for the Tauri window */
 html,
 body,
 #root {
-  background-color: transparent !important;
+  background-color: var(--app-bg) !important;
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: 'Inter', sans-serif;
+  font-family: Inter, "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--ink);
 }
 
 /* Hide scrollbar for Chrome, Safari and Opera */
@@ -33,11 +40,8 @@ body,
   /* Firefox */
 }
 
-/* Glassmorphism utilities */
 .glass-panel {
   background: var(--glass-bg);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 70px rgba(45, 40, 32, 0.14);
 }

@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -96,7 +97,8 @@ data class ChatMessage(
 private enum class MemoryScreen {
     Search,
     Settings,
-    Reference
+    Reference,
+    Vault
 }
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -223,6 +225,7 @@ fun ChatScreen() {
                         syncEnabled = syncEnabled,
                         memoryStorage = memoryStorage,
                         syncClient = syncClient,
+                        onVaultClick = { activeScreen = MemoryScreen.Vault },
                         onSyncEnabledChange = { enabled ->
                             syncEnabled = enabled
                             syncPrefs.edit()
@@ -266,6 +269,12 @@ fun ChatScreen() {
                         }
                     )
                 }
+                MemoryScreen.Vault -> {
+                    VaultScreen(
+                        memoryStorage = memoryStorage,
+                        onBack = { activeScreen = MemoryScreen.Settings }
+                    )
+                }
             }
         }
 
@@ -306,8 +315,8 @@ private fun FloatingHamburgerButton(
         modifier = modifier
             .size(40.dp)
             .clip(CircleShape)
-            .background(Color(0xFF333333)),
-        colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFF9E9E9E))
+            .background(Color.White),
+        colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFF181818))
     ) {
         Column(
             modifier = Modifier
@@ -330,7 +339,7 @@ private fun HamburgerLine(width: Dp) {
             .width(width)
             .height(3.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF9E9E9E))
+            .background(Color(0xFF181818))
     )
 }
 
@@ -339,6 +348,7 @@ private fun SettingsScreen(
     syncEnabled: Boolean,
     memoryStorage: MemoryStorage,
     syncClient: SyncClient,
+    onVaultClick: () -> Unit,
     onSyncEnabledChange: (Boolean) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -361,7 +371,7 @@ private fun SettingsScreen(
         ) {
             Text(
                 text = "Settings",
-                color = Color.White,
+                color = Color(0xFF171717),
                 fontSize = 34.sp,
                 lineHeight = 36.sp,
                 fontWeight = FontWeight.Bold
@@ -378,7 +388,7 @@ private fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Sync",
-                            color = Color.White,
+                            color = Color(0xFF171717),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -407,9 +417,43 @@ private fun SettingsScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             SettingsPanel {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onVaultClick() },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Memory Vault",
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Text(
+                            text = "View and manage all captured memories.",
+                            color = Color(0xFF9C9C9C),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowRight,
+                        contentDescription = "Open Vault",
+                        tint = Color(0xFF9C9C9C)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            SettingsPanel {
                 Text(
                     text = "Manual Sync",
-                    color = Color.White,
+                    color = Color(0xFF171717),
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -447,8 +491,8 @@ private fun SettingsScreen(
                             focusedBorderColor = Color(0xFF72E4EA),
                             unfocusedBorderColor = Color(0xFF444444),
                             disabledBorderColor = Color(0xFF303030),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            focusedTextColor = Color(0xFF171717),
+                            unfocusedTextColor = Color(0xFF171717),
                             disabledTextColor = Color(0xFF777777),
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
@@ -517,7 +561,7 @@ private fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF1D1D1D))
+            .background(Color.White)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         content = content
     )
@@ -547,19 +591,21 @@ private fun MemorySearchScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(320.dp)
+                .height(380.dp)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0x4D72E4EA), Color.Transparent),
-                        radius = 520f
+                        colors = listOf(Color(0x66FFD96D), Color(0x22FF7058), Color.Transparent),
+                        radius = 620f
                     )
                 )
         )
 
         if (messages.isEmpty() && !isGenerating && currentStream.isBlank()) {
-            LandingTitle(
-                text = if (isModelLoaded) "Search\nThrough\nyour\nmemories" else initStatus,
-                modifier = Modifier.align(Alignment.Center)
+            HomeHeroCard(
+                title = if (isModelLoaded) "How can I help\nyou remember?" else initStatus,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 22.dp)
             )
         } else {
             LazyColumn(
@@ -601,16 +647,84 @@ private fun MemorySearchScreen(
 }
 
 @Composable
-private fun LandingTitle(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text = text,
-        color = Color(0xFFECECEC),
-        fontSize = 36.sp,
-        lineHeight = 35.sp,
-        fontWeight = FontWeight.Bold,
-        textAlign = TextAlign.Center,
-        modifier = modifier.padding(horizontal = 48.dp)
-    )
+private fun HomeHeroCard(title: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(430.dp)
+            .clip(RoundedCornerShape(42.dp))
+            .background(Color(0xFFEFEDE8)),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 46.dp, start = 22.dp, end = 22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "HELLO",
+                color = Color(0xFF2B2926),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = title,
+                color = Color(0xFF111111),
+                fontSize = 31.sp,
+                lineHeight = 32.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SuggestionChip("Search memory")
+                SuggestionChip("Find activity")
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            SuggestionChip("Organize context")
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(190.dp)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF6E78FF),
+                            Color(0xFFFF7058),
+                            Color(0xFFFFD96D),
+                            Color(0xFFFFF8D8)
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .fillMaxWidth(0.72f)
+                .height(128.dp)
+                .clip(RoundedCornerShape(topStart = 120.dp))
+                .background(Color(0xAAFFFFFF))
+        )
+    }
+}
+
+@Composable
+private fun SuggestionChip(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color.White)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = text, color = Color(0xFF282522), fontSize = 13.sp)
+    }
 }
 
 @Composable
@@ -626,14 +740,14 @@ private fun MemoryMessage(message: ChatMessage, onReferenceClick: (String) -> Un
                     .clip(RoundedCornerShape(24.dp))
                     .background(
                         Brush.horizontalGradient(
-                            colors = listOf(Color(0xFF252525), Color(0xFF191919))
+                            colors = listOf(Color(0xFFFFFFFF), Color(0xFFF2F0EA))
                         )
                     )
                     .padding(horizontal = 19.dp, vertical = 11.dp)
             ) {
                 Text(
                     text = message.text,
-                    color = Color.White,
+                    color = Color(0xFF171717),
                     fontSize = 15.sp,
                     lineHeight = 19.sp
                 )
@@ -646,7 +760,7 @@ private fun MemoryMessage(message: ChatMessage, onReferenceClick: (String) -> Un
         ) {
             Text(
                 text = message.text,
-                color = Color(0xFFF0F2F2),
+                color = Color(0xFF26231F),
                 fontSize = 14.sp,
                 lineHeight = 18.sp,
                 modifier = Modifier
@@ -677,7 +791,7 @@ private fun ThinkingState(currentStream: String) {
         if (currentStream.isBlank()) {
             Text(
                 text = "Thinking...",
-                color = Color.White,
+                color = Color(0xFF26231F),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -740,7 +854,7 @@ private fun SearchInputBar(
             .clip(RoundedCornerShape(34.dp))
             .background(
                 Brush.horizontalGradient(
-                    colors = listOf(Color(0xFF2B2B2B), Color(0xFF353535))
+                    colors = listOf(Color.White, Color(0xFFFFFEFB))
                 )
             )
             .padding(start = 18.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
@@ -754,7 +868,7 @@ private fun SearchInputBar(
             placeholder = {
                 Text(
                     text = "What are you looking for...",
-                    color = Color(0xFF9C9C9C),
+                    color = Color(0xFF7A766F),
                     fontSize = 12.sp
                 )
             },
@@ -766,8 +880,8 @@ private fun SearchInputBar(
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,
                 cursorColor = Color(0xFF72E4EA),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                focusedTextColor = Color(0xFF171717),
+                unfocusedTextColor = Color(0xFF171717),
                 disabledTextColor = Color(0xFF888888)
             ),
             textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
@@ -782,12 +896,12 @@ private fun SearchInputBar(
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(Color(0xFF8AF1F5), Color(0xFF61D6DD)),
+                        colors = listOf(Color(0xFF77A0FF), Color(0xFF4F7DF2)),
                         radius = 44f
                     )
                 ),
             colors = IconButtonDefaults.iconButtonColors(
-                contentColor = Color(0xFF121212),
+                contentColor = Color.White,
                 disabledContentColor = Color(0xFF505050)
             )
         ) {
@@ -811,7 +925,7 @@ private fun ReferenceImageScreen(screenshotPath: String?) {
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(Color(0x1E72E4EA), Color(0xFF090A0A)),
+                    colors = listOf(Color(0x55FFD96D), Color(0xFFF7F5EF)),
                     radius = 900f
                 )
             )
@@ -849,9 +963,9 @@ private fun ReferenceImageScreen(screenshotPath: String?) {
 private fun MemoryBackgroundBrush(): Brush {
     return Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF080909),
-            Color(0xFF0B0F0F),
-            Color(0xFF102625)
+            Color(0xFFFAF8F2),
+            Color(0xFFF7F5EF),
+            Color(0xFFF0EDE6)
         )
     )
 }

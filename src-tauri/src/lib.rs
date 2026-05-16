@@ -255,11 +255,40 @@ async fn get_sync_status(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn toggle_auto_sync(enabled: bool, app: tauri::AppHandle) -> Result<String, String> {
+    let payload = serde_json::json!({
+        "action": "toggle_auto_sync",
+        "enabled": enabled
+    });
+    
+    communicate_with_sidecar(&app, payload)
+}
+
+#[tauri::command]
 async fn sync_with(ip: String, port: i32, app: tauri::AppHandle) -> Result<String, String> {
     let payload = serde_json::json!({
         "action": "sync_with",
         "ip": ip,
         "port": port
+    });
+    
+    communicate_with_sidecar(&app, payload)
+}
+
+#[tauri::command]
+async fn get_all_memories(app: tauri::AppHandle) -> Result<String, String> {
+    let payload = serde_json::json!({
+        "action": "get_all_memories"
+    });
+    
+    communicate_with_sidecar(&app, payload)
+}
+
+#[tauri::command]
+async fn delete_memory(timestamp: String, app: tauri::AppHandle) -> Result<String, String> {
+    let payload = serde_json::json!({
+        "action": "delete_memory",
+        "timestamp": timestamp
     });
     
     communicate_with_sidecar(&app, payload)
@@ -331,7 +360,7 @@ pub fn run() {
                     // Notify frontend
                     let _ = app.emit("shortcut-capture", ());
                 }
-            })?;
+            }).unwrap_or_else(|e| eprintln!("Warning: Failed to register capture shortcut: {}", e));
             
             // Alt+Shift+Space for Chat Toggle
             let chat_shortcut = Shortcut::from_str("Alt+Shift+Space").unwrap();
@@ -341,7 +370,7 @@ pub fn run() {
                     // Notify frontend
                     let _ = app.emit("shortcut-toggle", ());
                 }
-            })?;
+            }).unwrap_or_else(|e| eprintln!("Warning: Failed to register chat toggle shortcut: {}", e));
 
             Ok(())
         })
@@ -355,7 +384,10 @@ pub fn run() {
             set_gpu_mode,
             get_sync_status,
             sync_with,
-            toggle_chat_window
+            toggle_auto_sync,
+            toggle_chat_window,
+            get_all_memories,
+            delete_memory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

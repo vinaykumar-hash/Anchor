@@ -45,6 +45,10 @@ class MemoryStorage(private val context: Context) {
         return prefs.getString("paired_ip", null)
     }
 
+    fun clearSyncedIp() {
+        prefs.edit().remove("paired_ip").apply()
+    }
+
     suspend fun init() = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
@@ -143,6 +147,24 @@ class MemoryStorage(private val context: Context) {
         mutex.withLock {
             loadFromFile()
             memoryStore.toList()
+        }
+    }
+
+    /**
+     * Delete a specific memory entry by timestamp.
+     */
+    suspend fun deleteMemory(timestamp: Long): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            loadFromFile()
+            val initialSize = memoryStore.size
+            memoryStore.removeAll { it.timestamp == timestamp }
+            if (memoryStore.size < initialSize) {
+                saveToFile()
+                Log.d(TAG, "Deleted memory with timestamp $timestamp")
+                true
+            } else {
+                false
+            }
         }
     }
 

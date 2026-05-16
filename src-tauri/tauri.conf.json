@@ -19,9 +19,9 @@
         "center": true,
         "visible": false,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "alwaysOnTop": true,
-        "resizable": false,
+        "resizable": true,
         "skipTaskbar": true
       }
     ],

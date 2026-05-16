@@ -70,6 +70,7 @@ class ContextExtractionService : AccessibilityService() {
             ModelManager.initialize(this@ContextExtractionService)
             
             setSyncComponentsEnabled(isSyncEnabled())
+            startAutoSyncLoop()
         }
     }
 
@@ -99,6 +100,27 @@ class ContextExtractionService : AccessibilityService() {
             registerReceiver(syncSettingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(syncSettingsReceiver, filter)
+        }
+    }
+
+    private fun startAutoSyncLoop() {
+        serviceScope.launch {
+            while (true) {
+                if (isSyncEnabled()) {
+                    val pairedIp = memoryStorage.getSyncedIp()
+                    if (pairedIp != null) {
+                        try {
+                            Log.d(TAG, "🔄 Periodic auto-sync pull from $pairedIp...")
+                            val syncClient = com.example.contextmemory.sync.SyncClient(memoryStorage)
+                            syncClient.syncWith(pairedIp)
+                            syncClient.close()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "❌ Periodic auto-sync failed", e)
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(30_000) // Poll every 30 seconds
+            }
         }
     }
 

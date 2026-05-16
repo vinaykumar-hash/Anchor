@@ -73,111 +73,37 @@ CONFIG_PATH  = APP_DATA / "sync_config.json"
 os.makedirs(DB_PATH, exist_ok=True)
 os.makedirs(MODELS_PATH, exist_ok=True)
 
-def save_paired_ip(ip):
-    try:
-        with open(CONFIG_PATH, "w") as f:
-            json.dump({"paired_ip": ip}, f)
-    except Exception:
-        pass
-
-def get_paired_ip():
+def _read_config():
     try:
         if CONFIG_PATH.exists():
             with open(CONFIG_PATH, "r") as f:
-                return json.load(f).get("paired_ip")
+                return json.load(f)
     except Exception:
         pass
-    return None
+    return {}
 
-def trigger_auto_sync(mgr):
-    """Trigger a full bidirectional sync with the paired IP."""
-    ip = get_paired_ip()
-    if not ip:
-        return
-        
-    # We use the existing sync_with logic but in a background thread
-    def run_sync():
-        try:
-            # We don't want to spam IPC with results for every auto-push,
-            # so we just call a version of the sync logic that doesn't use _send()
-            _perform_background_sync(mgr, ip)
-        except Exception:
-            pass
-            
-    threading.Thread(target=run_sync, daemon=True).start()
-
-def _perform_background_sync(mgr, target_ip):
-    import urllib.request
-    import sys
-    base_url = f"http://{target_ip}:8473"
-    print(f"[Sync] Attempting auto-sync with phone at {target_ip}...", file=sys.stderr)
-    
+def _write_config(data):
     try:
-        table = mgr._db()
-        embedder = mgr._embedder()
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
 
-        # 1. Pull from remote
-        try:
-            with urllib.request.urlopen(f"{base_url}/sync/entries", timeout=15) as resp:
-                remote_data = json.loads(resp.read().decode())
-            print(f"[Sync] Connected to phone. Pulling data...", file=sys.stderr)
-        except Exception as e:
-            print(f"[Sync] Failed to reach phone at {target_ip}: {e}", file=sys.stderr)
-            return
+def save_paired_ip(ip):
+    cfg = _read_config()
+    cfg["paired_ip"] = ip
+    _write_config(cfg)
 
-        existing = set()
-        try:
-            rows = table.to_pandas()
-            for _, row in rows.iterrows():
-                existing.add(str(row.get("text", ""))[:80].lower())
-        except Exception: pass
+def get_paired_ip():
+    return _read_config().get("paired_ip")
 
-        imported = 0
-        for entry in remote_data.get("entries", []):
-            text = entry.get("text", "")
-            if text[:80].lower() not in existing:
-                vec = embedder.encode(text).tolist()
-                table.add([{
-                    "vector": vec,
-                    "text": text,
-                    "image_path": "",
-                    "timestamp": datetime.now().isoformat(),
-                }])
-                existing.add(text[:80].lower())
-                imported += 1
-        
-        if imported > 0:
-            print(f"[Sync] Imported {imported} new memories from phone.", file=sys.stderr)
+def set_auto_sync_enabled(enabled: bool):
+    cfg = _read_config()
+    cfg["auto_sync_enabled"] = enabled
+    _write_config(cfg)
 
-        # 2. Push to remote
-        local_rows = table.to_pandas()
-        local_entries = []
-        for _, row in local_rows.iterrows():
-            ts_str = str(row.get("timestamp", ""))
-            try:
-                ts_epoch = int(datetime.fromisoformat(ts_str).timestamp() * 1000)
-            except Exception: ts_epoch = 0
-                
-            local_entries.append({
-                "text": str(row.get("text", "")),
-                "packageName": "pc",
-                "timestamp": ts_epoch,
-                "screenshotFilename": "",
-                "sourceDevice": "pc",
-            })
-
-        push_body = json.dumps({"entries": local_entries}).encode("utf-8")
-        push_req = urllib.request.Request(
-            f"{base_url}/sync/entries",
-            data=push_body,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(push_req, timeout=15) as resp:
-            print(f"[Sync] Successfully pushed PC memories to phone.", file=sys.stderr)
-            
-    except Exception as e:
-        print(f"[Sync] Error during background sync: {e}", file=sys.stderr)
+def get_auto_sync_enabled() -> bool:
+    return _read_config().get("auto_sync_enabled", True)
 
 
 # ── lazy-loaded AI manager ──────────────────────────────────────────
@@ -356,10 +282,6 @@ class AIManager:
             
             answer = full_answer.strip()
 
-        except Exception:
-            # Fallback restoration in case of crash
-            pass
-
         except Exception as exc:
             # Fallback: present the extracted memories directly (no LLM needed)
             try:
@@ -384,6 +306,14 @@ class AIManager:
 def main():
     mgr = AIManager()
 
+    # Pre-initialize LanceDB and Embedder in the main thread to prevent GIL/import deadlocks in the background HTTP server
+    try:
+        mgr._db()
+        mgr._embedder()
+    except Exception as exc:
+        import sys
+        print(f"[AIManager] Failed to pre-init DB/Embedder: {exc}", file=sys.stderr)
+
     # Start the sync HTTP server in a background thread
     try:
         from sync_server import set_ai_manager, start_sync_server, get_local_ip, SYNC_PORT
@@ -405,8 +335,7 @@ def main():
             if action == "process":
                 path = req["path"]
                 desc = mgr.process_image(path)
-                # Auto-push to paired device
-                trigger_auto_sync(mgr)
+
                 _send({"status": "success", "action": "process",
                        "path": path, "description": desc})
 
@@ -414,6 +343,37 @@ def main():
                 q = req["query"]
                 _send({"status": "success", "action": "search",
                        "query": q, "results": mgr.search(q)})
+
+            elif action == "get_all_memories":
+                table = mgr._db()
+                try:
+                    rows = table.to_pandas()
+                    memories = []
+                    for _, row in rows.iterrows():
+                        memories.append({
+                            "timestamp": str(row.get("timestamp", "")),
+                            "text": str(row.get("text", "")),
+                            "image_path": str(row.get("image_path", ""))
+                        })
+                    # Sort by timestamp descending
+                    memories.sort(key=lambda x: x["timestamp"], reverse=True)
+                    _send({"status": "success", "action": "get_all_memories", "memories": memories})
+                except Exception as e:
+                    _send({"status": "error", "action": "get_all_memories", "message": str(e)})
+
+            elif action == "delete_memory":
+                timestamp = req.get("timestamp")
+                if not timestamp:
+                    _send({"status": "error", "action": "delete_memory", "message": "Missing timestamp"})
+                    continue
+                table = mgr._db()
+                try:
+                    # Escape quotes just in case, though ISO string shouldn't have them
+                    ts_safe = timestamp.replace("'", "''")
+                    table.delete(f"timestamp = '{ts_safe}'")
+                    _send({"status": "success", "action": "delete_memory", "timestamp": timestamp})
+                except Exception as e:
+                    _send({"status": "error", "action": "delete_memory", "message": str(e)})
 
             elif action == "ask":
                 q = req["query"]
@@ -426,6 +386,11 @@ def main():
                 use_gpu = req.get("use_gpu", False)
                 mgr.set_gpu_mode(use_gpu)
                 _send({"status": "success", "action": "set_gpu_mode", "use_gpu": use_gpu})
+
+            elif action == "toggle_auto_sync":
+                enabled = req.get("enabled", True)
+                set_auto_sync_enabled(enabled)
+                _send({"status": "success", "action": "toggle_auto_sync", "enabled": enabled})
 
             elif action == "sync_status":
                 try:
@@ -443,7 +408,8 @@ def main():
                     pass
                 _send({"status": "success", "action": "sync_status",
                        "ip": ip, "port": port, "entryCount": count,
-                       "pairedIp": paired_ip})
+                       "pairedIp": paired_ip,
+                       "autoSyncEnabled": get_auto_sync_enabled()})
 
             elif action == "sync_with":
                 target_ip = req.get("ip", "").strip()

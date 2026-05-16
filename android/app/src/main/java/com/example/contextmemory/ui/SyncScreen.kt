@@ -37,6 +37,7 @@ fun SyncScreen(
     var syncResult by remember { mutableStateOf<String?>(null) }
     val discoveredDevices by deviceDiscovery.discoveredDevices.collectAsState()
     val localIp = remember { deviceDiscovery.getLocalIpAddress() ?: "Unknown" }
+    var savedIp by remember { mutableStateOf(memoryStorage.getSyncedIp()) }
 
     Column(
         modifier = Modifier
@@ -156,8 +157,42 @@ fun SyncScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Saved IP Section
+        if (savedIp != null) {
+            Text("Saved PC Connection", color = Color(0xFF888888), fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1E1E1E))
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Auto-Sync Target", color = Color.White, fontWeight = FontWeight.Medium)
+                        Text(savedIp!!, color = Color(0xFF6B4EE6), fontSize = 14.sp)
+                    }
+                    TextButton(
+                        onClick = {
+                            memoryStorage.clearSyncedIp()
+                            savedIp = null
+                            syncResult = "Saved IP removed"
+                        }
+                    ) {
+                        Text("Delete", color = Color(0xFFE57373))
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
         // Manual IP Entry
-        Text("Manual Connect", color = Color(0xFF888888), fontSize = 14.sp)
+        Text(if (savedIp == null) "Manual Connect" else "Change Connect IP", color = Color(0xFF888888), fontSize = 14.sp)
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
@@ -184,14 +219,15 @@ fun SyncScreen(
                         isSyncing = true
                         syncResult = null
                         coroutineScope.launch {
-                            val result = syncClient.syncWith(manualIp.trim())
-                            isSyncing = false
-                            syncResult = if (result.success) {
-                                memoryStorage.saveSyncedIp(manualIp.trim())
-                                "✅ Synced! Imported: ${result.imported}, Exported: ${result.exported}"
-                            } else {
-                                "❌ ${result.error}"
-                            }
+                                        val result = syncClient.syncWith(manualIp.trim())
+                                        isSyncing = false
+                                        syncResult = if (result.success) {
+                                            memoryStorage.saveSyncedIp(manualIp.trim())
+                                            savedIp = manualIp.trim()
+                                            "✅ Synced! Imported: ${result.imported}, Exported: ${result.exported}"
+                                        } else {
+                                            "❌ ${result.error}"
+                                        }
                         }
                     }
                 },
