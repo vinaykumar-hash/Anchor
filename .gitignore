@@ -69,3 +69,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Android Build Outputs
+android/app/release/
+*.apk

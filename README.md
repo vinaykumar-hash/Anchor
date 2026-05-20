@@ -66,10 +66,13 @@ pip install sentence-transformers lancedb pyarrow pandas pillow xcap requests fl
 
 ### 3. Model Files Setup
 Anchor expects the offline vision models to reside in your local AppData folder:
-1. Locate your AppData local directory (typically `C:\Users\<username>\AppData\Local\com.contextmemory.app\models`).
-2. Place the following vision models in the `models` folder:
-   - `gemma-4-vision.gguf`
-   - `gemma-4-vision-mmproj.gguf`
+1. Download the desktop vision models from the Hugging Face repository:
+   * **Link**: [vinay7525/Gemma4_e2b_it_litertlm](https://huggingface.co/vinay7525/Gemma4_e2b_it_litertlm/tree/main)
+   * **Required Files**:
+     * `gemma-4-vision.gguf`
+     * `gemma-4-vision-mmproj.gguf`
+2. Open the destination folder on Windows by pressing `Win + R`, typing `%localappdata%\com.contextmemory.app\models`, and pressing **Enter**.
+3. Place both downloaded files inside that `models` directory.
 
 ### 4. Running the Desktop App
 Install Node packages and launch the Tauri dev environment:
@@ -105,8 +108,13 @@ Anchor on Android uses an Accessibility Service to capture screen details secure
 3. Toggle the permission to **Enabled**.
 
 ### 4. Deploying On-Device AI Models
-1. Download the mobile variant GGUF/LiteRT models.
-2. Place them under the app assets or copy them into the application's internal files directory (`/data/user/0/com.example.contextmemory/files/gemma-4-e2b-int4.litertlm`) as shown in the system logs.
+1. **Automatic Setup (Recommended)**:
+   * When you launch the Android app for the first time, it checks for the model. If missing, it opens a premium download screen to download `gemma-4-E2B-it.litertlm` automatically from your Hugging Face repository: [vinay7525/Gemma4_e2b_it_litertlm](https://huggingface.co/vinay7525/Gemma4_e2b_it_litertlm/tree/main).
+2. **Manual Push (Optional)**:
+   * Download the file `gemma-4-E2B-it.litertlm` manually and push it to the app's external files directory:
+     ```bash
+     adb push gemma-4-E2B-it.litertlm /storage/emulated/0/Android/data/com.example.contextmemory/files/
+     ```
 
 ---
 

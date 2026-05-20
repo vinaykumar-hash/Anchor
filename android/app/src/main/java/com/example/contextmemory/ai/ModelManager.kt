@@ -33,7 +33,7 @@ object ModelManager {
      * Initialize the LiteRT-LM Engine. Call from a background thread.
      * Safe to call multiple times — will skip if already initialized.
      */
-    suspend fun initialize(context: Context, modelFileName: String = "gemma-4-e2b-int4.litertlm") {
+    suspend fun initialize(context: Context, modelFileName: String = "gemma-4-E2B-it.litertlm") {
         if (_isReady.value) return
 
         initMutex.withLock {
@@ -47,6 +47,16 @@ object ModelManager {
                     if (!modelFile.exists()) {
                         modelFile = File(context.filesDir, modelFileName)
                     }
+                    
+                    // Fallback to legacy filename if the new one is not found
+                    if (!modelFile.exists() && modelFileName == "gemma-4-E2B-it.litertlm") {
+                        val legacyName = "gemma-4-e2b-int4.litertlm"
+                        modelFile = File(context.getExternalFilesDir(null), legacyName)
+                        if (!modelFile.exists()) {
+                            modelFile = File(context.filesDir, legacyName)
+                        }
+                    }
+
                     if (!modelFile.exists()) {
                         _initStatus.value = "Model file not found"
                         Log.e(TAG, "Model file not found in external or internal dir")
