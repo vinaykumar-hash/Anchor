@@ -125,10 +125,10 @@ fn capture_screen(app: AppHandle) -> Result<CaptureInfo, String> {
         });
         match communicate_with_sidecar(&app_clone, payload) {
             Ok(resp) => {
-                eprintln!("[ContextMemory] Auto-process OK: {}", resp.trim());
+                eprintln!("[Anchor] Auto-process OK: {}", resp.trim());
             }
             Err(e) => {
-                eprintln!("[ContextMemory] Auto-process FAILED: {}", e);
+                eprintln!("[Anchor] Auto-process FAILED: {}", e);
             }
         }
     });
@@ -136,7 +136,7 @@ fn capture_screen(app: AppHandle) -> Result<CaptureInfo, String> {
     // Send a toast notification
     let _ = app.notification()
         .builder()
-        .title("ContextMemory")
+        .title("Anchor")
         .body("Screenshot captured and processing!")
         .show();
 
@@ -313,6 +313,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .setup(|app| {
             // Setup System Tray
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

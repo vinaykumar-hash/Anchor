@@ -54,26 +54,11 @@ object ModelManager {
                     }
                     Log.d(TAG, "Model found at: ${modelFile.absolutePath}")
 
-                    // Try GPU first without vision (safer for memory)
-                    _initStatus.value = "Loading model (GPU)..."
+                    // Try CPU first for maximum stability on mobile devices
+                    _initStatus.value = "Loading model (CPU)..."
                     Log.d(TAG, "Initializing LiteRT-LM engine from: ${modelFile.absolutePath}")
 
                     try {
-                        val gpuConfig = EngineConfig(
-                            modelPath = modelFile.absolutePath,
-                            backend = Backend.GPU(),
-                            cacheDir = context.cacheDir.absolutePath
-                        )
-                        val gpuEngine = Engine(gpuConfig)
-                        gpuEngine.initialize()
-                        engine = gpuEngine
-                        _isReady.value = true
-                        _initStatus.value = "Ready (GPU)"
-                        Log.d(TAG, "✅ Engine initialized with GPU backend (text-only)")
-                    } catch (gpuError: Exception) {
-                        Log.w(TAG, "GPU init failed, falling back to CPU", gpuError)
-                        _initStatus.value = "GPU failed, trying CPU..."
-
                         val cpuConfig = EngineConfig(
                             modelPath = modelFile.absolutePath,
                             backend = Backend.CPU(),
@@ -84,7 +69,22 @@ object ModelManager {
                         engine = cpuEngine
                         _isReady.value = true
                         _initStatus.value = "Ready (CPU)"
-                        Log.d(TAG, "✅ Engine initialized with CPU fallback")
+                        Log.d(TAG, "✅ Engine initialized with CPU backend")
+                    } catch (cpuError: Exception) {
+                        Log.w(TAG, "CPU init failed, falling back to GPU", cpuError)
+                        _initStatus.value = "CPU failed, trying GPU..."
+
+                        val gpuConfig = EngineConfig(
+                            modelPath = modelFile.absolutePath,
+                            backend = Backend.GPU(),
+                            cacheDir = context.cacheDir.absolutePath
+                        )
+                        val gpuEngine = Engine(gpuConfig)
+                        gpuEngine.initialize()
+                        engine = gpuEngine
+                        _isReady.value = true
+                        _initStatus.value = "Ready (GPU)"
+                        Log.d(TAG, "✅ Engine initialized with GPU fallback")
                     }
                 } catch (e: Exception) {
                     _initStatus.value = "Failed: ${e.message}"

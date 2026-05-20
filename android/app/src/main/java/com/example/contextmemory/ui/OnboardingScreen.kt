@@ -35,7 +35,7 @@ fun OnboardingScreen(onPermissionsGranted: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Welcome to ContextMemory",
+            text = "Welcome to Anchor",
             style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center
         )

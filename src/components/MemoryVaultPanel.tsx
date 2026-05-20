@@ -42,7 +42,7 @@ export function MemoryVaultPanel({ onClose }: MemoryVaultPanelProps) {
 
   const handleDelete = async (timestamp: string) => {
     if (!confirm('Are you sure you want to delete this memory? It cannot be undone.')) return;
-    
+
     setDeletingId(timestamp);
     try {
       const resultStr = await invoke<string>('delete_memory', { timestamp });
@@ -63,40 +63,40 @@ export function MemoryVaultPanel({ onClose }: MemoryVaultPanelProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-50 flex items-center justify-center bg-[#f7f5ef]/70 backdrop-blur-sm p-4"
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="bg-white/95 backdrop-blur-md w-full max-w-4xl h-[80vh] rounded-3xl shadow-2xl border border-black/[0.06] flex flex-col overflow-hidden"
+        className="bg-[#1C1C1E] border border-white/10 w-full max-w-4xl h-[80vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-black/[0.06] bg-[#f4f1ea]">
+        <div className="flex items-center justify-between p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-[var(--accent)]/15 rounded-xl">
-              <Database className="w-5 h-5 text-[var(--accent)]" />
+            <div className="p-2 bg-[var(--aqua)]/15 rounded-xl">
+              <Database className="w-5 h-5 text-[var(--aqua)]" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-[var(--ink)]">Memory Vault</h2>
-              <p className="text-sm text-[var(--muted)]">View and manage your captured context</p>
+              <h2 className="text-xl font-semibold text-white">Memory Vault</h2>
+              <p className="text-sm text-white/40">View and manage your captured context</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[0.04] rounded-xl transition-colors"
+            className="p-2 text-white/40 hover:text-white hover:bg-white/5 rounded-xl transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
           {isLoading ? (
-            <div className="h-full flex flex-col items-center justify-center text-[var(--muted)]">
-              <Loader2 className="w-8 h-8 animate-spin mb-4 text-[var(--accent)]" />
+            <div className="h-full flex flex-col items-center justify-center text-white/40">
+              <Loader2 className="w-8 h-8 animate-spin mb-4 text-[var(--aqua)]" />
               <p>Loading your memories...</p>
             </div>
           ) : error ? (
@@ -104,26 +104,26 @@ export function MemoryVaultPanel({ onClose }: MemoryVaultPanelProps) {
               <p>{error}</p>
             </div>
           ) : memories.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-[var(--muted)]">
+            <div className="h-full flex items-center justify-center text-white/40">
               <p>Your vault is empty. Try capturing some screen context first!</p>
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="text-sm text-[var(--muted)] mb-4 px-2">
+              <div className="text-sm text-white/40 mb-4 px-2">
                 Total Memories: {memories.length}
               </div>
-              
+
               {memories.map((memory) => {
                 const date = new Date(memory.timestamp);
                 const isDeleting = deletingId === memory.timestamp;
-                
+
                 return (
-                  <div 
+                  <div
                     key={memory.timestamp}
-                    className="bg-[#fdfcf8] rounded-2xl p-4 border border-black/[0.05] hover:border-black/[0.1] transition-colors relative group"
+                    className="bg-white/[0.03] rounded-2xl p-4 border border-white/5 hover:border-white/10 transition-colors relative group"
                   >
                     <div className="flex justify-between items-start mb-2 gap-4">
-                      <div className="text-xs font-mono text-[var(--accent)] bg-[var(--accent)]/10 px-2 py-1 rounded-md">
+                      <div className="text-xs font-mono text-[var(--aqua)] bg-[var(--aqua)]/10 px-2 py-1 rounded-md">
                         {date.toLocaleString()}
                       </div>
                       <button
@@ -141,8 +141,8 @@ export function MemoryVaultPanel({ onClose }: MemoryVaultPanelProps) {
                         )}
                       </button>
                     </div>
-                    
-                    <div className="text-sm text-[var(--ink)] whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-black/10 pr-2">
+
+                    <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-2">
                       {memory.text}
                     </div>
                   </div>

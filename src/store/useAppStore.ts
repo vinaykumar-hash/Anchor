@@ -32,7 +32,7 @@ export const useAppStore = create<AppState>((set) => ({
   messages: [{
     id: 'welcome',
     role: 'assistant',
-    content: 'Hello! I am ContextMemory. I can analyze your screen captures. Press `Alt+S` to capture your screen, and select a capture to start a conversation. You can also search your past captures.',
+    content: 'Hello! I am Anchor — your personal memory assistant. Press Alt+S to capture your screen, and ask me anything about what you\'ve seen.',
     timestamp: Date.now()
   }],
   captures: [],

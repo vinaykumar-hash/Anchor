@@ -14,9 +14,11 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -37,24 +39,33 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.border
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,11 +85,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import com.example.contextmemory.R
 import com.example.contextmemory.ai.GemmaInferenceModel
 import com.example.contextmemory.db.MemoryStorage
 import com.example.contextmemory.services.ContextExtractionService
@@ -95,11 +110,26 @@ data class ChatMessage(
 )
 
 private enum class MemoryScreen {
-    Search,
+    Home,
+    Chat,
     Settings,
     Reference,
     Vault
 }
+
+val Aqua = Color(0xFF6FD1D7)
+val Pink = Color(0xFFD76FB3)
+val Red = Color(0xFFD76F6F)
+val Green = Color(0xFF6FD78D)
+val HeaderGradient = Brush.horizontalGradient(
+    colors = listOf(Aqua, Pink, Red, Green)
+)
+
+val FunnelDisplay = FontFamily(
+    Font(R.font.funnel_display_regular, FontWeight.Normal),
+    Font(R.font.funnel_display_semibold, FontWeight.SemiBold),
+    Font(R.font.funnel_display_bold, FontWeight.Bold)
+)
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -113,7 +143,7 @@ fun ChatScreen() {
     val syncClient = remember { SyncClient(memoryStorage) }
     val deviceDiscovery = remember { DeviceDiscovery(context) }
 
-    var activeScreen by remember { mutableStateOf(MemoryScreen.Search) }
+    var activeScreen by remember { mutableStateOf(MemoryScreen.Home) }
     var selectedScreenshot by remember { mutableStateOf<String?>(null) }
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
@@ -204,150 +234,224 @@ fun ChatScreen() {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        AnimatedContent(
-            targetState = activeScreen,
-            transitionSpec = {
-                val forward = targetState.ordinal > initialState.ordinal
-                if (forward) {
-                    (slideInHorizontally { width -> width } + fadeIn()) togetherWith
-                        (slideOutHorizontally { width -> -width / 3 } + fadeOut())
-                } else {
-                    (slideInHorizontally { width -> -width } + fadeIn()) togetherWith
-                        (slideOutHorizontally { width -> width / 3 } + fadeOut())
-                }
-            },
-            label = "memory-screen"
-        ) { screen ->
-            when (screen) {
-                MemoryScreen.Settings -> {
-                    SettingsScreen(
-                        syncEnabled = syncEnabled,
-                        memoryStorage = memoryStorage,
-                        syncClient = syncClient,
-                        onVaultClick = { activeScreen = MemoryScreen.Vault },
-                        onSyncEnabledChange = { enabled ->
-                            syncEnabled = enabled
-                            syncPrefs.edit()
-                                .putBoolean(ContextExtractionService.KEY_SYNC_ENABLED, enabled)
-                                .apply()
-                            context.sendBroadcast(
-                                Intent(ContextExtractionService.ACTION_SYNC_SETTING_CHANGED)
-                                    .setPackage(context.packageName)
-                                    .putExtra(ContextExtractionService.EXTRA_SYNC_ENABLED, enabled)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .statusBarsPadding()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Persistent Header
+            MemoraHeader(
+                searchQuery = inputText,
+                onSearchChange = { inputText = it },
+                onMenuClick = { activeScreen = MemoryScreen.Settings }
+            )
+
+            Box(modifier = Modifier.weight(1f)) {
+                AnimatedContent(
+                    targetState = activeScreen,
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        if (forward) {
+                            (slideInHorizontally { width -> width } + fadeIn()) togetherWith
+                                (slideOutHorizontally { width -> -width / 3 } + fadeOut())
+                        } else {
+                            (slideInHorizontally { width -> -width } + fadeIn()) togetherWith
+                                (slideOutHorizontally { width -> width / 3 } + fadeOut())
+                        }
+                    },
+                    label = "memory-screen"
+                ) { screen ->
+                    when (screen) {
+                        MemoryScreen.Settings -> {
+                            BackHandler { activeScreen = MemoryScreen.Home }
+                            SettingsScreen(
+                                syncEnabled = syncEnabled,
+                                memoryStorage = memoryStorage,
+                                syncClient = syncClient,
+                                onBack = { activeScreen = MemoryScreen.Home },
+                                onVaultClick = { activeScreen = MemoryScreen.Vault },
+                                onSyncEnabledChange = { enabled ->
+                                    syncEnabled = enabled
+                                    syncPrefs.edit()
+                                        .putBoolean(ContextExtractionService.KEY_SYNC_ENABLED, enabled)
+                                        .apply()
+                                    context.sendBroadcast(
+                                        Intent(ContextExtractionService.ACTION_SYNC_SETTING_CHANGED)
+                                            .setPackage(context.packageName)
+                                            .putExtra(ContextExtractionService.EXTRA_SYNC_ENABLED, enabled)
+                                    )
+                                }
                             )
                         }
-                    )
-                }
-                MemoryScreen.Reference -> {
-                    ReferenceImageScreen(screenshotPath = selectedScreenshot)
-                }
-                MemoryScreen.Search -> {
-                    MemorySearchScreen(
-                        inputText = inputText,
-                        onInputChange = { inputText = it },
-                        messages = messages,
-                        isGenerating = isGenerating,
-                        isModelLoaded = isModelLoaded,
-                        initStatus = initStatus,
-                        currentStream = currentStream,
-                        onReferenceClick = {
-                            selectedScreenshot = it
-                            activeScreen = MemoryScreen.Reference
-                        },
-                        onSend = {
-                            if (inputText.isBlank() || isGenerating || !isModelLoaded) return@MemorySearchScreen
-                            val query = inputText.trim()
-                            inputText = ""
-                            messages = messages + ChatMessage(query, isUser = true)
-
-                            coroutineScope.launch {
-                                val retrievedEntries = memoryStorage.searchMemoryEntries(query, limit = 3)
-                                pendingScreenshots = retrievedEntries.mapNotNull { it.screenshotPath }
-                                gemmaModel.generateResponseAsync(query, retrievedEntries.map { it.text })
-                            }
+                        MemoryScreen.Reference -> {
+                            BackHandler { activeScreen = MemoryScreen.Home }
+                            ReferenceImageScreen(screenshotPath = selectedScreenshot)
                         }
-                    )
-                }
-                MemoryScreen.Vault -> {
-                    VaultScreen(
-                        memoryStorage = memoryStorage,
-                        onBack = { activeScreen = MemoryScreen.Settings }
-                    )
+                        MemoryScreen.Home -> {
+                            MemoryHomeScreen(
+                                memoryStorage = memoryStorage,
+                                searchQuery = inputText,
+                                onSettingsClick = { activeScreen = MemoryScreen.Settings },
+                                onAskClick = { activeScreen = MemoryScreen.Chat },
+                                onReferenceClick = { path ->
+                                    selectedScreenshot = path
+                                    activeScreen = MemoryScreen.Reference
+                                }
+                            )
+                        }
+                        MemoryScreen.Chat -> {
+                            BackHandler { activeScreen = MemoryScreen.Home }
+                            ChatView(
+                                messages = messages,
+                                isGenerating = isGenerating,
+                                currentStream = currentStream,
+                                onReferenceClick = { path ->
+                                    selectedScreenshot = path
+                                    activeScreen = MemoryScreen.Reference
+                                },
+                                onSend = { query ->
+                                    coroutineScope.launch {
+                                        val retrievedEntries = memoryStorage.searchMemoryEntries(query, limit = 3)
+                                        pendingScreenshots = retrievedEntries.mapNotNull { it.screenshotPath }
+                                        gemmaModel.generateResponseAsync(query, retrievedEntries.map { it.text })
+                                    }
+                                }
+                            )
+                        }
+                        MemoryScreen.Vault -> {
+                            BackHandler { activeScreen = MemoryScreen.Settings }
+                            VaultScreen(
+                                memoryStorage = memoryStorage,
+                                onBack = { activeScreen = MemoryScreen.Settings }
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
 
-        FloatingHamburgerButton(
-            isOpen = activeScreen == MemoryScreen.Settings,
-            onClick = {
-                activeScreen = if (activeScreen == MemoryScreen.Settings) {
-                    if (selectedScreenshot != null) MemoryScreen.Reference else MemoryScreen.Search
-                } else {
-                    MemoryScreen.Settings
+@Composable
+private fun MemoraHeader(
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onMenuClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(top = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_logo),
+                    contentDescription = "Anchor Logo",
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+                Text(
+                    text = "Anchor",
+                    color = Color.White,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FunnelDisplay,
+                    letterSpacing = (-1).sp
+                )
+            }
+            
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2C2C2E))
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(10.dp)
+                ) {
+                    repeat(3) {
+                        Box(
+                            modifier = Modifier
+                                .width(18.dp)
+                                .height(2.dp)
+                                .clip(RoundedCornerShape(1.dp))
+                                .background(Color.White.copy(alpha = 0.6f))
+                        )
+                    }
                 }
-            },
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        TextField(
+            value = searchQuery,
+            onValueChange = onSearchChange,
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 18.dp, end = 24.dp)
+                .fillMaxWidth(),
+            placeholder = { 
+                Text(
+                    "Search", 
+                    color = Color.White.copy(alpha = 0.4f), 
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(vertical = 0.dp)
+                ) 
+            },
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFF1C1C1E),
+                unfocusedContainerColor = Color(0xFF1C1C1E),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = Aqua,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent
+            ),
+            shape = RoundedCornerShape(24.dp),
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 16.sp)
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(HeaderGradient)
         )
     }
 }
 
-@Composable
-private fun FloatingHamburgerButton(
-    isOpen: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val rotation by animateFloatAsState(
-        targetValue = if (isOpen) 45f else 0f,
-        label = "hamburger-rotation"
-    )
-    val lastLineWidth by animateDpAsState(
-        targetValue = if (isOpen) 10.dp else 20.dp,
-        label = "hamburger-last-line"
-    )
-
-    IconButton(
-        onClick = onClick,
-        modifier = modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(Color.White),
-        colors = IconButtonDefaults.iconButtonColors(contentColor = Color(0xFF181818))
-    ) {
-        Column(
-            modifier = Modifier
-                .size(width = 20.dp, height = 16.dp)
-                .rotate(rotation),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.End
-        ) {
-            HamburgerLine(width = 10.dp)
-            HamburgerLine(width = 20.dp)
-            HamburgerLine(width = lastLineWidth)
-        }
-    }
-}
-
-@Composable
-private fun HamburgerLine(width: Dp) {
-    Box(
-        modifier = Modifier
-            .width(width)
-            .height(3.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF181818))
-    )
-}
 
 @Composable
 private fun SettingsScreen(
     syncEnabled: Boolean,
     memoryStorage: MemoryStorage,
     syncClient: SyncClient,
+    onBack: () -> Unit,
     onVaultClick: () -> Unit,
     onSyncEnabledChange: (Boolean) -> Unit
 ) {
@@ -359,7 +463,7 @@ private fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MemoryBackgroundBrush())
+            .background(Color.Black)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -367,11 +471,34 @@ private fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp)
-                .padding(top = 96.dp, bottom = 28.dp)
+                .padding(top = 16.dp, bottom = 28.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
+                    )
+                }
+                IconButton(onClick = {}) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More",
+                        tint = Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text(
                 text = "Settings",
-                color = Color(0xFF171717),
+                color = Color.White,
                 fontSize = 34.sp,
                 lineHeight = 36.sp,
                 fontWeight = FontWeight.Bold
@@ -388,7 +515,7 @@ private fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Sync",
-                            color = Color(0xFF171717),
+                            color = Color.White,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -399,7 +526,7 @@ private fun SettingsScreen(
                             } else {
                                 "Server, discovery, and background sync are stopped."
                             },
-                            color = Color(0xFF9C9C9C),
+                            color = Color.White.copy(alpha = 0.4f),
                             fontSize = 12.sp,
                             lineHeight = 16.sp
                         )
@@ -434,16 +561,16 @@ private fun SettingsScreen(
                         Spacer(modifier = Modifier.height(5.dp))
                         Text(
                             text = "View and manage all captured memories.",
-                            color = Color(0xFF9C9C9C),
+                            color = Color.White.copy(alpha = 0.4f),
                             fontSize = 12.sp,
                             lineHeight = 16.sp
                         )
                     }
 
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowRight,
+                        imageVector = Icons.Default.KeyboardArrowRight,
                         contentDescription = "Open Vault",
-                        tint = Color(0xFF9C9C9C)
+                        tint = Color.White.copy(alpha = 0.2f)
                     )
                 }
             }
@@ -453,7 +580,7 @@ private fun SettingsScreen(
             SettingsPanel {
                 Text(
                     text = "Manual Sync",
-                    color = Color(0xFF171717),
+                    color = Color.White,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -464,7 +591,7 @@ private fun SettingsScreen(
                     } else {
                         "Turn on Sync to use manual sync."
                     },
-                    color = Color(0xFF9C9C9C),
+                    color = Color.White.copy(alpha = 0.4f),
                     fontSize = 12.sp,
                     lineHeight = 16.sp
                 )
@@ -482,22 +609,22 @@ private fun SettingsScreen(
                         placeholder = {
                             Text(
                                 text = "192.168.1.100",
-                                color = Color(0xFF777777),
+                                color = Color.White.copy(alpha = 0.2f),
                                 fontSize = 12.sp
                             )
                         },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF72E4EA),
-                            unfocusedBorderColor = Color(0xFF444444),
-                            disabledBorderColor = Color(0xFF303030),
-                            focusedTextColor = Color(0xFF171717),
-                            unfocusedTextColor = Color(0xFF171717),
-                            disabledTextColor = Color(0xFF777777),
+                            focusedBorderColor = Color(0xFF007AFF),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                            disabledBorderColor = Color.White.copy(alpha = 0.05f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            disabledTextColor = Color.White.copy(alpha = 0.3f),
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
                             disabledContainerColor = Color.Transparent,
-                            cursorColor = Color(0xFF72E4EA)
+                            cursorColor = Color(0xFF007AFF)
                         )
                     )
 
@@ -523,10 +650,10 @@ private fun SettingsScreen(
                         },
                         enabled = syncEnabled && !isSyncing && manualIp.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF72E4EA),
-                            contentColor = Color(0xFF111111),
-                            disabledContainerColor = Color(0xFF333333),
-                            disabledContentColor = Color(0xFF777777)
+                            containerColor = Color.White,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color.White.copy(alpha = 0.05f),
+                            disabledContentColor = Color.White.copy(alpha = 0.1f)
                         )
                     ) {
                         if (isSyncing) {
@@ -561,224 +688,321 @@ private fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White)
+            .background(Color(0xFF1C1C1E))
+            .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(18.dp))
             .padding(horizontal = 18.dp, vertical = 16.dp),
         content = content
     )
 }
 
 @Composable
-private fun MemorySearchScreen(
-    inputText: String,
-    onInputChange: (String) -> Unit,
-    messages: List<ChatMessage>,
-    isGenerating: Boolean,
-    isModelLoaded: Boolean,
-    initStatus: String,
-    currentStream: String,
-    onReferenceClick: (String) -> Unit,
-    onSend: () -> Unit
+private fun MemoryHomeScreen(
+    memoryStorage: MemoryStorage,
+    searchQuery: String,
+    onSettingsClick: () -> Unit,
+    onAskClick: () -> Unit,
+    onReferenceClick: (String) -> Unit
 ) {
+    var memories by remember { mutableStateOf<List<com.example.contextmemory.db.MemoryEntry>>(emptyList()) }
+    var searchResults by remember { mutableStateOf<List<com.example.contextmemory.db.MemoryEntry>>(emptyList()) }
+    
+    LaunchedEffect(Unit) {
+        memories = memoryStorage.getAllEntries().sortedByDescending { it.timestamp }
+    }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            searchResults = memoryStorage.searchMemoryEntries(searchQuery, limit = 10)
+        } else {
+            searchResults = emptyList()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MemoryBackgroundBrush())
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(380.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(Color(0x66FFD96D), Color(0x22FF7058), Color.Transparent),
-                        radius = 620f
-                    )
-                )
-        )
-
-        if (messages.isEmpty() && !isGenerating && currentStream.isBlank()) {
-            HomeHeroCard(
-                title = if (isModelLoaded) "How can I help\nyou remember?" else initStatus,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 22.dp)
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
-                contentPadding = PaddingValues(top = 94.dp, bottom = 122.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                items(messages) { message ->
-                    MemoryMessage(message, onReferenceClick)
-                }
-
-                if (isGenerating) {
-                    item {
-                        ThinkingState(currentStream)
-                    }
-                } else if (currentStream.isNotBlank() && messages.lastOrNull()?.text != currentStream) {
-                    item {
-                        MemoryMessage(
-                            message = ChatMessage(currentStream, isUser = false),
-                            onReferenceClick = onReferenceClick
-                        )
-                    }
-                }
-            }
-        }
-
-        SearchInputBar(
-            value = inputText,
-            onValueChange = onInputChange,
-            enabled = isModelLoaded && !isGenerating,
-            onSend = onSend,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 18.dp, vertical = 16.dp)
-        )
-    }
-}
-
-@Composable
-private fun HomeHeroCard(title: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(430.dp)
-            .clip(RoundedCornerShape(42.dp))
-            .background(Color(0xFFEFEDE8)),
-        contentAlignment = Alignment.TopCenter
+            .background(Color.Black)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 46.dp, start = 22.dp, end = 22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxSize()
+                .padding(horizontal = 20.dp)
         ) {
-            Text(
-                text = "HELLO",
-                color = Color(0xFF2B2926),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = title,
-                color = Color(0xFF111111),
-                fontSize = 31.sp,
-                lineHeight = 32.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SuggestionChip("Search memory")
-                SuggestionChip("Find activity")
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            SuggestionChip("Organize context")
-        }
+            if (searchQuery.isNotBlank()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
+                ) {
+                    items(searchResults) { memory ->
+                        MemoryCard(memory, onClick = { onReferenceClick(memory.screenshotPath ?: "") })
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                    contentPadding = PaddingValues(top = 24.dp, bottom = 100.dp)
+                ) {
+                    // Collections Section
+                    item {
+                        Column {
+                            Text(
+                                text = "Collection",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                item { 
+                                    LargeCollectionCard(
+                                        "Name of the Collection", 
+                                        "Information about the Collection"
+                                    ) 
+                                }
+                                item { 
+                                    LargeCollectionCard(
+                                        "Work Context", 
+                                        "Recent professional captures"
+                                    ) 
+                                }
+                            }
+                        }
+                    }
 
+                    // All Memories Section
+                    item {
+                        Text(
+                            text = "All Memories",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    // Simple Grid implementation using Column/Row as LazyVerticalGrid might need different imports
+                    val chunkedMemories = memories.chunked(3)
+                    items(chunkedMemories) { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            row.forEach { memory ->
+                                GridMemoryCard(
+                                    memory, 
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onReferenceClick(memory.screenshotPath ?: "") }
+                                )
+                            }
+                            // Fill empty spaces if row is not full
+                            repeat(3 - row.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Bottom "Ask Questions" Button
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(190.dp)
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF6E78FF),
-                            Color(0xFFFF7058),
-                            Color(0xFFFFD96D),
-                            Color(0xFFFFF8D8)
-                        )
+                .padding(bottom = 34.dp)
+        ) {
+            Surface(
+                onClick = onAskClick,
+                shape = RoundedCornerShape(30.dp),
+                color = Color(0xFFE5E5E5), // Light gray background
+                modifier = Modifier
+                    .height(56.dp)
+                    .widthIn(min = 200.dp)
+                    .border(1.5.dp, Aqua, RoundedCornerShape(30.dp)) // Colored border
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Ask Questions",
+                        color = Color.Black,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .fillMaxWidth(0.72f)
-                .height(128.dp)
-                .clip(RoundedCornerShape(topStart = 120.dp))
-                .background(Color(0xAAFFFFFF))
-        )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun SuggestionChip(text: String) {
-    Box(
+private fun LargeCollectionCard(title: String, subtitle: String) {
+    Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(28.dp))
-            .background(Color.White)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
+            .width(320.dp)
+            .height(120.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xFF1C1C1E)
     ) {
-        Text(text = text, color = Color(0xFF282522), fontSize = 13.sp)
-    }
-}
-
-@Composable
-private fun MemoryMessage(message: ChatMessage, onReferenceClick: (String) -> Unit) {
-    if (message.isUser) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color(0xFFFFFFFF), Color(0xFFF2F0EA))
-                        )
-                    )
-                    .padding(horizontal = 19.dp, vertical = 11.dp)
-            ) {
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFD1D1D6)) // Light gray placeholder
+            )
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column {
                 Text(
-                    text = message.text,
-                    color = Color(0xFF171717),
-                    fontSize = 15.sp,
-                    lineHeight = 19.sp
+                    text = title,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = subtitle,
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp
                 )
             }
         }
-    } else {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Text(
-                text = message.text,
-                color = Color(0xFF26231F),
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier
-                    .fillMaxWidth(0.88f)
-                    .padding(start = 3.dp)
-            )
+    }
+}
 
-            if (message.contextScreenshots.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(message.contextScreenshots.take(3)) { path ->
-                        ReferenceCard(path = path, onClick = { onReferenceClick(path) })
-                    }
+@Composable
+private fun GridMemoryCard(
+    memory: com.example.contextmemory.db.MemoryEntry,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val bitmap = remember(memory.screenshotPath) { 
+        memory.screenshotPath?.let { loadBitmap(it, sampleSize = 8) } 
+    }
+    
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF1C1C1E))
+            .clickable(onClick = onClick)
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+    }
+}
+
+@Composable
+private fun CollectionCard(title: String, count: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .size(width = 160.dp, height = 180.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFF1C1C1E))
+            .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
+            .padding(16.dp)
+    ) {
+        Column {
+            Text(text = title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(text = count, color = Color.White.copy(alpha = 0.4f), fontSize = 13.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            // Preview Grid Placeholder
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.05f)))
+                Box(modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.05f)))
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.05f)))
+                Box(modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.05f)))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryCard(memory: com.example.contextmemory.db.MemoryEntry, onClick: () -> Unit) {
+    val dateFormat = remember { java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()) }
+    val bitmap = remember(memory.screenshotPath) { 
+        memory.screenshotPath?.let { loadBitmap(it, sampleSize = 4) }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFF1C1C1E))
+            .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (memory.text.length > 30) memory.text.take(30) + "..." else memory.text,
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Source: ${memory.packageName}",
+                    color = Color.White.copy(alpha = 0.4f),
+                    fontSize = 13.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(16.dp).clip(CircleShape).background(Color(0xFFE1306C))) // Mock app icon
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Today ${dateFormat.format(java.util.Date(memory.timestamp))}",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Box(
+                modifier = Modifier
+                    .size(width = 80.dp, height = 110.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
             }
         }
     }
 }
+
 
 @Composable
 private fun ThinkingState(currentStream: String) {
@@ -791,7 +1015,7 @@ private fun ThinkingState(currentStream: String) {
         if (currentStream.isBlank()) {
             Text(
                 text = "Thinking...",
-                color = Color(0xFF26231F),
+                color = Color.White.copy(alpha = 0.4f),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -802,7 +1026,7 @@ private fun ThinkingState(currentStream: String) {
                 ThinkingDot(Color(0xFF6FE2EA))
             }
         } else {
-            MemoryMessage(ChatMessage(currentStream, isUser = false), onReferenceClick = {})
+            MemoraMessage(ChatMessage(currentStream, isUser = false), onReferenceClick = {})
         }
     }
 }
@@ -840,76 +1064,169 @@ private fun ReferenceCard(path: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SearchInputBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    enabled: Boolean,
-    onSend: () -> Unit,
-    modifier: Modifier = Modifier
+private fun ChatView(
+    messages: List<ChatMessage>,
+    isGenerating: Boolean,
+    currentStream: String,
+    onReferenceClick: (String) -> Unit,
+    onSend: (String) -> Unit
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .clip(RoundedCornerShape(34.dp))
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(Color.White, Color(0xFFFFFEFB))
-                )
-            )
-            .padding(start = 18.dp, end = 7.dp, top = 5.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TextField(
-            value = value,
-            onValueChange = onValueChange,
-            enabled = enabled,
-            modifier = Modifier.weight(1f),
-            placeholder = {
-                Text(
-                    text = "What are you looking for...",
-                    color = Color(0xFF7A766F),
-                    fontSize = 12.sp
-                )
-            },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-                cursorColor = Color(0xFF72E4EA),
-                focusedTextColor = Color(0xFF171717),
-                unfocusedTextColor = Color(0xFF171717),
-                disabledTextColor = Color(0xFF888888)
-            ),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
-            singleLine = true
-        )
+    var chatInput by remember { mutableStateOf("") }
+    val scrollState = rememberLazyListState()
 
-        IconButton(
-            onClick = onSend,
-            enabled = enabled && value.isNotBlank(),
+    LaunchedEffect(messages.size, currentStream) {
+        if (messages.isNotEmpty() || currentStream.isNotBlank()) {
+            scrollState.animateScrollToItem(if (isGenerating) messages.size else messages.size - 1)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        LazyColumn(
+            state = scrollState,
             modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(Color(0xFF77A0FF), Color(0xFF4F7DF2)),
-                        radius = 44f
-                    )
-                ),
-            colors = IconButtonDefaults.iconButtonColors(
-                contentColor = Color.White,
-                disabledContentColor = Color(0xFF505050)
-            )
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = Icons.Filled.Send,
-                contentDescription = "Send",
-                modifier = Modifier.size(22.dp)
+            items(messages) { message ->
+                MemoraMessage(message, onReferenceClick)
+            }
+            if (isGenerating) {
+                item {
+                    ThinkingState(currentStream)
+                }
+            }
+        }
+
+        // Chat Input Area
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .imePadding(),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            TextField(
+                value = chatInput,
+                onValueChange = { chatInput = it },
+                modifier = Modifier
+                    .weight(1f),
+                placeholder = { 
+                    Text("Ask questions", color = Color.White.copy(alpha = 0.4f), fontSize = 16.sp) 
+                },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color(0xFF1C1C1E),
+                    unfocusedContainerColor = Color(0xFF1C1C1E),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    cursorColor = Aqua,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                shape = RoundedCornerShape(28.dp),
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 16.sp)
             )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            IconButton(
+                onClick = {
+                    if (chatInput.isNotBlank()) {
+                        onSend(chatInput)
+                        chatInput = ""
+                    }
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Aqua.copy(alpha = 0.15f)),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = Color(0xFF16484B)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Send, 
+                    contentDescription = "Send",
+                    tint = Aqua,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoraMessage(message: ChatMessage, onReferenceClick: (String) -> Unit) {
+    var showReferences by remember { mutableStateOf(false) }
+    
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (message.isUser) {
+            Surface(
+                color = Color(0xFF1C1C1E),
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Text(
+                    text = message.text,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FunnelDisplay,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = message.text,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
+                    fontFamily = FunnelDisplay,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = if (showReferences) "Hide References" else "Show References →",
+                    color = Aqua,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FunnelDisplay,
+                    modifier = Modifier.clickable { 
+                        showReferences = !showReferences
+                    }
+                )
+                
+                if (showReferences && message.contextScreenshots.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 16.dp)
+                    ) {
+                        items(message.contextScreenshots) { path ->
+                            ReferenceCard(path = path, onClick = { onReferenceClick(path) })
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -923,22 +1240,15 @@ private fun ReferenceImageScreen(screenshotPath: String?) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(Color(0x55FFD96D), Color(0xFFF7F5EF)),
-                    radius = 900f
-                )
-            )
+            .background(Color.Black)
             .statusBarsPadding()
     ) {
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
-                .padding(horizontal = 26.dp)
-                .fillMaxWidth()
-                .height(425.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(Color(0xFFD9D9D9)),
+                .padding(24.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF1C1C1E)),
             contentAlignment = Alignment.Center
         ) {
             if (bitmap != null) {
@@ -950,24 +1260,13 @@ private fun ReferenceImageScreen(screenshotPath: String?) {
                 )
             } else {
                 Text(
-                    text = "Reference Image clicked",
-                    color = Color.Black,
-                    fontSize = 18.sp
+                    text = "Image not found",
+                    color = Color.White.copy(alpha = 0.3f),
+                    fontSize = 16.sp
                 )
             }
         }
     }
-}
-
-@Composable
-private fun MemoryBackgroundBrush(): Brush {
-    return Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFFFAF8F2),
-            Color(0xFFF7F5EF),
-            Color(0xFFF0EDE6)
-        )
-    )
 }
 
 private fun loadBitmap(path: String, sampleSize: Int) = try {

@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,8 +47,9 @@ fun VaultScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF121212))
-            .padding(horizontal = 16.dp)
+            .background(Color.Black)
+            .statusBarsPadding()
+            .padding(horizontal = 20.dp)
     ) {
         // Header
         Row(
@@ -56,21 +58,25 @@ fun VaultScreen(
                 .padding(vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack) {
-                Text("← Back", color = Color(0xFF6B4EE6))
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Memory Vault",
+                text = "Memory Vault",
                 color = Color.White,
-                fontSize = 20.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold
             )
         }
 
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF6B4EE6))
+                CircularProgressIndicator(color = Color(0xFF007AFF))
             }
         } else if (memories.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -99,9 +105,9 @@ fun VaultScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF1E1E1E))
-                            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(Color(0xFF1C1C1E))
+                            .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(24.dp))
                             .padding(16.dp)
                     ) {
                         Column {
@@ -114,9 +120,8 @@ fun VaultScreen(
                                 Column {
                                     Text(
                                         text = dateFormat.format(Date(memory.timestamp)),
-                                        color = Color(0xFF6B4EE6),
+                                        color = Color(0xFF007AFF),
                                         fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(

@@ -44,7 +44,7 @@ export function HistorySidebar() {
               <Clock size={16} className="text-[var(--accent)]" />
               <span>Capture History</span>
             </div>
-            <button 
+            <button
               onClick={toggleHistory}
               className="p-1.5 rounded-md hover:bg-white/10 text-white/50 hover:text-white transition-colors"
             >
@@ -71,15 +71,14 @@ export function HistorySidebar() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleSelect(cap)}
-                    className={`w-full text-left rounded-xl overflow-hidden border transition-all ${
-                      isSelected 
-                        ? 'border-[var(--accent)] shadow-[0_0_15px_rgba(124,92,252,0.3)] ring-1 ring-[var(--accent)]' 
+                    className={`w-full text-left rounded-xl overflow-hidden border transition-all ${isSelected
+                        ? 'border-[var(--accent)] shadow-[0_0_15px_rgba(124,92,252,0.3)] ring-1 ring-[var(--accent)]'
                         : 'border-white/10 hover:border-white/30 bg-white/5'
-                    }`}
+                      }`}
                   >
                     <div className="h-28 overflow-hidden bg-black/50">
-                      <img 
-                        src={convertFileSrc(cap.path)} 
+                      <img
+                        src={convertFileSrc(cap.path)}
                         alt={cap.filename}
                         className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity"
                         loading="lazy"

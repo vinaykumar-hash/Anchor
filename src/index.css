@@ -1,47 +1,77 @@
 @import "tailwindcss";
 
 :root {
-  --app-bg: #f7f5ef;
-  --surface: #efede8;
-  --surface-strong: #ffffff;
-  --ink: #161616;
-  --muted: #6f6b65;
-  --glass-bg: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(22, 22, 22, 0.08);
-  --accent: #5b82f1;
-  --accent-hover: #416ee8;
-  --sunset: linear-gradient(135deg, #6b7cff 0%, #ff7058 38%, #ffd96d 72%, #fff8d8 100%);
+  --app-bg: #000000;
+  --surface: #1C1C1E;
+  --surface-strong: #2C2C2E;
+  --ink: #FFFFFF;
+  --muted: #8E8E93;
+  --glass-bg: rgba(28, 28, 30, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --aqua: #6FD1D7;
+  --pink: #D76FB3;
+  --red: #D76F6F;
+  --green: #6FD78D;
+  --accent: #6FD1D7;
+  --accent-hover: #8DDCE1;
+  --gradient-bar: linear-gradient(90deg, #6FD1D7, #D76FB3, #D76F6F, #6FD78D);
 }
 
-/* Base styles for the Tauri window */
 html,
 body,
 #root {
-  background-color: var(--app-bg) !important;
+  background-color: #000000 !important;
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: Inter, "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: "Funnel Display", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--ink);
 }
 
-/* Hide scrollbar for Chrome, Safari and Opera */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
-/* Hide scrollbar for IE, Edge and Firefox */
 .no-scrollbar {
   -ms-overflow-style: none;
-  /* IE and Edge */
   scrollbar-width: none;
-  /* Firefox */
+}
+
+/* Custom Scrollbar for Dark Theme */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .glass-panel {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 24px 70px rgba(45, 40, 32, 0.14);
+  backdrop-filter: blur(40px);
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+}
+
+.gradient-bar {
+  height: 1.5px;
+  background: var(--gradient-bar);
+  width: 100%;
 }

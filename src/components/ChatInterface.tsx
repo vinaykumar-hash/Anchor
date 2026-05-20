@@ -7,23 +7,62 @@ import { SyncPanel } from './SyncPanel';
 import { MemoryVaultPanel } from './MemoryVaultPanel';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Send, History, Sparkles, X, Settings, Cpu, Zap, Wifi, Menu, Database } from 'lucide-react';
+import { Send, Sparkles, X, Settings, Cpu, Wifi, Database, Search, ArrowLeft } from 'lucide-react';
+import { Capture } from '../types';
+import logoImg from '../logo/Main.png';
 
 export function ChatInterface() {
   const [input, setInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSyncOpen, setIsSyncOpen] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const [isHomeView, setIsHomeView] = useState(true);
+  const [homeCaptures, setHomeCaptures] = useState<Capture[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { messages, addMessage, updateMessage, selectedCapture, selectCapture, toggleHistory, isHistoryOpen, useGpu, toggleGpu } = useAppStore();
   const currentAssistantMsgId = useRef<string | null>(null);
   const currentAssistantContent = useRef<string>('');
 
+  // Load captures for the home grid (supports search query filtering)
   useEffect(() => {
-    // Listen for streaming chunks from AI
+    if (!searchQuery.trim()) {
+      loadHomeCaptures();
+      return;
+    }
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const resultStr = await invoke<string>('search_context', { query: searchQuery.trim() });
+        const resultJson = JSON.parse(resultStr);
+        if (resultJson.results) {
+          const searchedCaps = resultJson.results.map((r: any) => ({
+            path: r.path,
+            filename: r.path.split(/[/\\]/).pop() || '',
+            timestamp: 0
+          }));
+          setHomeCaptures(searchedCaps);
+        }
+      } catch (e) {
+        console.error('Failed to search context:', e);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, isHomeView]);
+
+  const loadHomeCaptures = async () => {
+    try {
+      const caps = await invoke<Capture[]>('get_captures');
+      setHomeCaptures(caps || []);
+    } catch (e) {
+      console.error('Failed to load captures:', e);
+    }
+  };
+
+  useEffect(() => {
     const unlistenChunks = listen<string>('ai-chunk', (event) => {
       if (currentAssistantMsgId.current) {
         currentAssistantContent.current += event.payload;
@@ -40,7 +79,6 @@ export function ChatInterface() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    // Sync GPU setting with backend on startup
     invoke('set_gpu_mode', { useGpu });
   }, [messages, isLoading, useGpu]);
 
@@ -50,8 +88,8 @@ export function ChatInterface() {
 
     const userMsg = input.trim();
     setInput('');
+    setIsHomeView(false);
 
-    // Add user message
     addMessage({
       id: Date.now().toString(),
       role: 'user',
@@ -66,316 +104,353 @@ export function ChatInterface() {
       if (userMsg.toLowerCase().startsWith('/search ')) {
         const query = userMsg.substring(8).trim();
         const resultStr = await invoke<string>('search_context', { query });
-
-        try {
-          const resultJson = JSON.parse(resultStr);
-          if (resultJson.results && resultJson.results.length > 0) {
-            addMessage({
-              id: (Date.now() + 1).toString(),
-              role: 'assistant',
-              content: `SEARCH_RESULTS:${JSON.stringify(resultJson.results)}`,
-              timestamp: Date.now()
-            });
-          } else {
-            addMessage({
-              id: (Date.now() + 1).toString(),
-              role: 'assistant',
-              content: `No results found for "${query}".`,
-              timestamp: Date.now()
-            });
-          }
-        } catch (e) {
+        const resultJson = JSON.parse(resultStr);
+        if (resultJson.results && resultJson.results.length > 0) {
           addMessage({
             id: (Date.now() + 1).toString(),
             role: 'assistant',
-            content: `Failed to parse search results: ${e}`,
+            content: `SEARCH_RESULTS:${JSON.stringify(resultJson.results)}`,
+            timestamp: Date.now()
+          });
+        } else {
+          addMessage({
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: `No results found for "${query}".`,
             timestamp: Date.now()
           });
         }
       } else {
-        // Normal AI processing
-        if (selectedCapture) {
-          const resultStr = await invoke<string>('invoke_ai_processing', { path: selectedCapture.path });
+        const assistantId = (Date.now() + 1).toString();
+        currentAssistantMsgId.current = assistantId;
+        currentAssistantContent.current = '';
 
-          let responseContent = "I analyzed the image, but couldn't generate a description.";
-          try {
-            const resultJson = JSON.parse(resultStr);
-            responseContent = resultJson.description || responseContent;
-          } catch (e) {
-            responseContent = `Raw response: ${resultStr}`;
-          }
+        addMessage({
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          timestamp: Date.now()
+        });
 
-          addMessage({
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: responseContent,
-            timestamp: Date.now()
-          });
-
-        } else if (userMsg.toLowerCase().trim() === 'hello' || userMsg.toLowerCase().trim() === 'hi') {
-          addMessage({
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: "Hello! I'm ContextMemory. Whenever you take screenshots with `Alt+S`, they are automatically added to your database. Ask me anything to search your memory!",
-            timestamp: Date.now()
-          });
+        const resultStr = await invoke<string>('ask_agent', { query: userMsg });
+        const resultJson = JSON.parse(resultStr);
+        if (resultJson.answer) {
+          updateMessage(assistantId, `RAG_RESULT:${JSON.stringify({ answer: resultJson.answer, sources: resultJson.sources })}`);
         } else {
-          // Default behavior: Ask Agent (RAG Pipeline)
-          const assistantId = (Date.now() + 1).toString();
-          currentAssistantMsgId.current = assistantId;
-          currentAssistantContent.current = '';
-          
-          addMessage({
-            id: assistantId,
-            role: 'assistant',
-            content: '',
-            timestamp: Date.now()
-          });
-
-          const resultStr = await invoke<string>('ask_agent', { query: userMsg });
-
-          try {
-            const resultJson = JSON.parse(resultStr);
-            if (resultJson.answer) {
-              updateMessage(assistantId, `RAG_RESULT:${JSON.stringify({ answer: resultJson.answer, sources: resultJson.sources })}`);
-            } else {
-              updateMessage(assistantId, "I couldn't process your question properly.");
-            }
-          } catch (e) {
-            updateMessage(assistantId, `Failed to search your memory: ${e}`);
-          } finally {
-            currentAssistantMsgId.current = null;
-          }
+          updateMessage(assistantId, "I couldn't process your question properly.");
         }
       }
-    } catch (error) {
-      console.error('Error invoking backend:', error);
-      addMessage({
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Sorry, there was an error processing your request: ${error}`,
-        timestamp: Date.now()
-      });
+    } catch (e) {
+      console.error(e);
     } finally {
       setIsLoading(false);
-      // Clear the selected capture after asking about it to reset state
-      selectCapture(null);
+      currentAssistantMsgId.current = null;
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-    // Close window on Escape
-    if (e.key === 'Escape') {
-      invoke('toggle_chat_window');
-    }
+  const handleCaptureClick = (cap: Capture) => {
+    selectCapture(cap);
+    setIsHomeView(false);
   };
-
-  const isEmpty = messages.length === 0;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95, y: 20 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className="w-full h-full rounded-[34px] overflow-hidden flex flex-col relative shadow-[0_30px_80px_rgba(43,38,30,0.16)] border border-black/[0.06] bg-[var(--app-bg)]"
-    >
-      {/* Top Drag Region */}
-      <div data-tauri-drag-region className="absolute top-0 left-0 right-0 h-16 z-40 cursor-move" />
-
-      {/* Floating Menu Button */}
-      <div className="absolute top-5 right-5 z-50">
-        <button
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className={`p-3 rounded-full transition-colors shadow-sm ${isMenuOpen ? 'bg-white text-[var(--ink)]' : 'bg-white/80 text-[var(--ink)] hover:bg-white'}`}
-        >
-          <Menu size={20} />
-        </button>
-
-        <AnimatePresence>
-          {isMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, originX: 1, originY: 0 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="absolute top-full right-0 mt-2 w-52 bg-white/95 border border-black/[0.06] rounded-2xl shadow-2xl py-2 overflow-hidden backdrop-blur-xl"
-            >
-              <button onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }} className="w-full px-4 py-2.5 text-left text-sm text-[var(--ink)] hover:bg-black/[0.04] flex items-center gap-3"><Settings size={16} /> Settings</button>
-              <button onClick={() => { setIsSyncOpen(true); setIsMenuOpen(false); }} className="w-full px-4 py-2.5 text-left text-sm text-[var(--ink)] hover:bg-black/[0.04] flex items-center gap-3"><Wifi size={16} /> Device Sync</button>
-              <button onClick={() => { setIsVaultOpen(true); setIsMenuOpen(false); }} className="w-full px-4 py-2.5 text-left text-sm text-[var(--ink)] hover:bg-black/[0.04] flex items-center gap-3"><Database size={16} /> Memory Vault</button>
-              <button onClick={() => { toggleHistory(); setIsMenuOpen(false); }} className="w-full px-4 py-2.5 text-left text-sm text-[var(--ink)] hover:bg-black/[0.04] flex items-center gap-3"><History size={16} /> History</button>
-              <div className="h-px bg-black/[0.06] my-1" />
-              <button onClick={() => { invoke('toggle_chat_window'); setIsMenuOpen(false); }} className="w-full px-4 py-2.5 text-left text-sm text-[var(--muted)] hover:bg-black/[0.04] flex items-center gap-3"><X size={16} /> Close</button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Main Content Area */}
-      {isEmpty ? (
-        <div className="flex-1 flex flex-col items-center justify-center relative z-10 px-8 pb-24">
-          <div className="w-full max-w-[460px] min-h-[420px] rounded-[42px] bg-[var(--surface)] border border-black/[0.04] shadow-[0_20px_80px_rgba(70,58,40,0.12)] flex flex-col items-center justify-start pt-14 px-8 overflow-hidden relative">
-            <p className="text-xs uppercase tracking-[0.16em] text-[var(--muted)] font-semibold mb-3">Hello there</p>
-            <h1 className="text-[42px] leading-[1.02] font-semibold text-[var(--ink)] text-center tracking-[-0.04em]">
-              How can I help<br />you remember?
-            </h1>
-            <div className="flex flex-wrap justify-center gap-3 mt-7 text-sm text-[var(--ink)]">
-              <span className="px-5 py-2.5 rounded-full bg-white shadow-sm">Search memory</span>
-              <span className="px-5 py-2.5 rounded-full bg-white shadow-sm">Organize context</span>
-              <span className="px-5 py-2.5 rounded-full bg-white shadow-sm">Find activity</span>
-            </div>
-            <div className="absolute -bottom-12 left-[-12%] right-[-12%] h-[210px] rounded-t-[100%] blur-[1px] opacity-95 bg-[var(--sunset)]" />
-            <div className="absolute bottom-0 left-[20%] right-[-20%] h-[155px] rounded-tl-[100%] bg-[rgba(255,255,255,0.62)]" />
-          </div>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-hidden relative flex flex-col pt-16 z-10">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 space-y-6 no-scrollbar pb-32">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-
-            {isLoading && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 max-w-[85%]">
-                <div className="w-8 h-8 rounded-full bg-white border border-black/[0.05] flex items-center justify-center text-[var(--accent)]">
-                  <Sparkles size={14} className="animate-pulse" />
-                </div>
-                <div className="bg-white border border-black/[0.04] p-3.5 rounded-2xl rounded-tl-sm backdrop-blur-md">
-                  <div className="flex gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-[var(--accent)]/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 bg-[#ff8b63]/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 bg-[#ffd96d]/80 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Background Teal Glow (Visible mainly in empty state) */}
-      <div className={`absolute bottom-0 left-0 right-0 h-[58%] pointer-events-none transition-opacity duration-700 ${isEmpty ? 'opacity-100' : 'opacity-30'} bg-[radial-gradient(ellipse_at_bottom,_rgba(255,217,109,0.55),_rgba(255,112,88,0.18),_transparent_70%)] blur-3xl`} />
-
-      {/* Input Area */}
-      <div className={`absolute left-0 right-0 z-20 transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isEmpty ? 'bottom-14 px-14' : 'bottom-0 px-5 pb-5 pt-10 bg-gradient-to-t from-[var(--app-bg)] via-[var(--app-bg)] to-transparent'}`}>
-        <AnimatePresence>
-          {selectedCapture && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-              className={`mb-3 ml-2 flex items-center gap-2 bg-black/50 backdrop-blur-md border border-white/10 rounded-lg p-1.5 pr-3 w-max shadow-lg ${isEmpty ? 'ml-0' : ''}`}
-            >
-              <div className="h-10 w-16 rounded overflow-hidden bg-black/50">
-                <img src={convertFileSrc(selectedCapture.path)} alt="context" className="w-full h-full object-cover" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-xs font-medium text-white/90">Context Attached</span>
-                <span className="text-[10px] text-white/50 truncate max-w-[150px]">{selectedCapture.filename}</span>
-              </div>
-              <button onClick={() => selectCapture(null)} className="ml-2 p-1 rounded-full hover:bg-white/10 text-white/50 hover:text-white">
-                <X size={14} />
+    <div className="flex flex-col h-full bg-black text-white overflow-hidden">
+      
+      {/* ─── Persistent Header ─── */}
+      <header className="shrink-0 pt-6 pb-0">
+        <div className="flex items-center justify-between mb-4 px-6" data-tauri-drag-region>
+          <div className="flex items-center gap-3">
+            {!isHomeView && (
+              <button 
+                onClick={() => setIsHomeView(true)}
+                className="p-2 rounded-full hover:bg-white/10 transition-colors"
+              >
+                <ArrowLeft size={20} />
               </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+            <img src={logoImg} className="w-8 h-8 object-contain rounded-lg" alt="Anchor Logo" data-tauri-drag-region />
+            <h1 className="text-3xl font-bold tracking-tight text-white leading-none" data-tauri-drag-region>
+              Anchor
+            </h1>
+          </div>
 
-        <form onSubmit={handleSubmit} className="relative flex items-center shadow-2xl">
+          {/* 3-line menu button */}
+          <button 
+            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+            className="w-10 h-10 rounded-full bg-[#2C2C2E] flex items-center justify-center hover:bg-[#3A3A3C] transition-colors"
+          >
+            <div className="flex flex-col gap-[4px]">
+              <span className="block w-[18px] h-[2px] rounded-full bg-white/60" />
+              <span className="block w-[18px] h-[2px] rounded-full bg-white/60" />
+              <span className="block w-[18px] h-[2px] rounded-full bg-white/60" />
+            </div>
+          </button>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative mb-3 px-6">
           <input
             type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="What are you looking for..."
-            className="w-full bg-white border border-black/[0.05] hover:border-black/[0.09] focus:border-[var(--accent)]/45 focus:ring-1 focus:ring-[var(--accent)]/35 rounded-[30px] py-[18px] pl-6 pr-16 text-[var(--ink)] placeholder:text-[var(--muted)]/70 outline-none transition-all font-medium text-[15px] shadow-[0_18px_45px_rgba(60,52,41,0.12)]"
-            autoFocus
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search"
+            className="w-full bg-[#1C1C1E] border-none rounded-3xl px-5 py-3 text-base text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-[var(--aqua)]/30"
           />
-          <button
-            type="submit"
-            disabled={!input.trim() || isLoading}
-            className="absolute right-2 p-2.5 rounded-full bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:bg-[#dad7cf] disabled:text-black/30 transition-colors shadow-md"
-          >
-            <Send size={18} fill="currentColor" className="ml-0.5" />
-          </button>
-        </form>
-      </div>
+          <Search size={18} className="absolute right-10 top-1/2 -translate-y-1/2 text-white/30" />
+        </div>
 
-      {/* Sidebar */}
-      <HistorySidebar />
+        {/* Gradient Bar — full width, no padding */}
+        <div className="gradient-bar" />
+      </header>
 
-      {/* Settings Modal */}
+      {/* ─── Settings Dropdown ─── */}
       <AnimatePresence>
         {isSettingsOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-[#f7f5ef]/70 backdrop-blur-sm"
-            onClick={() => setIsSettingsOpen(false)}
-          >
+          <>
+            {/* Backdrop to close */}
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white/95 border border-black/[0.06] rounded-3xl p-6 w-[320px] shadow-2xl relative"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40"
+              onClick={() => setIsSettingsOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute right-4 top-16 z-50 w-56 bg-[#2C2C2E] border border-white/10 rounded-2xl p-2 shadow-2xl"
             >
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="absolute top-4 right-4 text-[var(--muted)] hover:text-[var(--ink)]"
+              <button 
+                onClick={() => { setIsSyncOpen(true); setIsSettingsOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 hover:bg-white/5 hover:text-white transition-all text-sm font-medium"
               >
-                <X size={16} />
+                <Wifi size={16} className="text-[var(--aqua)]" /> Sync Devices
               </button>
-              <h3 className="text-lg font-semibold text-[var(--ink)] mb-4 flex items-center gap-2">
-                <Settings size={18} className="text-[var(--accent)]" />
-                Settings
-              </h3>
-
-              <div className="space-y-4">
-                <div className="bg-[#f4f1ea] border border-black/[0.04] p-4 rounded-2xl">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-[var(--ink)]">Processing Mode</span>
-                    <button
-                      onClick={toggleGpu}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${useGpu ? 'bg-[#71E3E6]' : 'bg-white/20'}`}
-                    >
-                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${useGpu ? 'translate-x-6' : 'translate-x-1'}`} />
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2 p-1 bg-white rounded-xl text-xs mt-3">
-                    <div className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-colors ${!useGpu ? 'bg-[#f4f1ea] text-[var(--ink)]' : 'text-[var(--muted)]'}`}>
-                      <Cpu size={12} />
-                      CPU
-                    </div>
-                    <div className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg transition-colors ${useGpu ? 'bg-[#f4f1ea] text-[var(--ink)]' : 'text-[var(--muted)]'}`}>
-                      <Zap size={12} />
-                      GPU
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-[var(--muted)] mt-2 leading-tight">
-                    {useGpu
-                      ? "GPU mode requires CUDA toolkit installed. Faster but uses VRAM."
-                      : "CPU mode is slower but works on any machine without setup."}
-                  </p>
-                </div>
-              </div>
+              <button 
+                onClick={() => { setIsVaultOpen(true); setIsSettingsOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 hover:bg-white/5 hover:text-white transition-all text-sm font-medium"
+              >
+                <Database size={16} className="text-[var(--aqua)]" /> Memory Vault
+              </button>
+              <div className="w-full h-px bg-white/5 my-1" />
+              <button 
+                onClick={toggleGpu}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${useGpu ? 'text-[var(--aqua)] bg-[var(--aqua)]/10' : 'text-white/70 hover:bg-white/5 hover:text-white'}`}
+              >
+                <Cpu size={16} /> {useGpu ? 'GPU Mode' : 'CPU Mode'}
+              </button>
+              <button 
+                onClick={() => { toggleHistory(); setIsSettingsOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 hover:bg-white/5 hover:text-white transition-all text-sm font-medium"
+              >
+                <Settings size={16} className="text-white/50" /> Capture History
+              </button>
             </motion.div>
-          </motion.div>
+          </>
         )}
       </AnimatePresence>
 
-      {/* Sync Panel */}
+      {/* ─── Main Content ─── */}
+      <main className="flex-1 relative overflow-hidden flex flex-col">
+        <AnimatePresence mode="wait">
+          {isHomeView ? (
+            <motion.div 
+              key="home"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
+              className="w-full h-full px-4 py-4 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-28"
+            >
+              {/* Collections – Horizontal Scroll */}
+              <section>
+                <h2 className="text-lg font-semibold text-white mb-4">Collection</h2>
+                <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                  {[
+                    { name: 'Work', info: 'Professional captures', icon: '💼', color: 'var(--aqua)' },
+                    { name: 'Web Inspiration', info: 'Design references', icon: '🌍', color: 'var(--pink)' },
+                    { name: 'Research', info: 'Articles and papers', icon: '📑', color: 'var(--green)' },
+                    { name: 'Projects', info: 'Code and builds', icon: '🚀', color: 'var(--red)' },
+                  ].map((col) => (
+                    <motion.div 
+                      key={col.name}
+                      whileHover={{ y: -3, scale: 1.02 }}
+                      className="flex-shrink-0 w-64 p-5 rounded-2xl bg-[#1C1C1E] border border-white/5 hover:border-white/10 transition-all cursor-pointer"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-20 h-20 rounded-2xl bg-[#2C2C2E] flex items-center justify-center text-2xl">
+                          {col.icon}
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-white">{col.name}</h3>
+                          <p className="text-white/40 text-sm mt-1">{col.info}</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </section>
+
+              {/* All Memories – Actual captures from backend */}
+              <section className="flex-1">
+                <h2 className="text-lg font-semibold text-white mb-4">All Memories</h2>
+                {homeCaptures.length > 0 ? (
+                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    {homeCaptures.map((cap, i) => (
+                      <motion.div 
+                        key={cap.path}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: i * 0.03 }}
+                        whileHover={{ scale: 1.03 }}
+                        onClick={() => handleCaptureClick(cap)}
+                        className="aspect-square rounded-2xl bg-[#1C1C1E] border border-white/5 hover:border-white/10 transition-all cursor-pointer overflow-hidden"
+                      >
+                        <img 
+                          src={convertFileSrc(cap.path)} 
+                          alt={cap.filename}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+                      <div 
+                        key={i}
+                        className="aspect-square rounded-2xl bg-[#1C1C1E] border border-white/5"
+                      >
+                        <div className="w-full h-full bg-gradient-to-br from-white/5 to-transparent" />
+                      </div>
+                    ))}
+                    <p className="col-span-full text-center text-white/30 text-sm mt-4">
+                      No memories yet. Press Alt+S to capture your screen.
+                    </p>
+                  </div>
+                )}
+              </section>
+
+              {/* Ask Questions Button – Bottom */}
+              <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-30">
+                <motion.button 
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setIsHomeView(false)}
+                  className="flex items-center gap-3 px-8 py-4 rounded-full bg-[#E5E5E5] text-black border-2 border-[var(--aqua)] shadow-[0_10px_40px_rgba(111,209,215,0.15)] transition-all font-bold text-base"
+                >
+                  <Sparkles size={20} className="text-[var(--aqua)]" />
+                  Ask questions
+                </motion.button>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="chat"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="w-full h-full flex flex-col"
+            >
+              {/* Chat Thread */}
+              <div 
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto px-4 pt-8 scroll-smooth custom-scrollbar pb-10"
+              >
+                <div className="max-w-3xl mx-auto space-y-10">
+                  {messages.filter(m => m.id !== 'welcome').length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center pt-24">
+                      <h2 className="text-4xl font-bold text-white mb-4 tracking-tight">How can I help you remember?</h2>
+                      <p className="text-white/30 text-lg max-w-md font-medium leading-relaxed">Search through your digital life, find lost moments, and ask questions about anything you've seen.</p>
+                      
+                      <div className="mt-12 grid grid-cols-2 gap-3 max-w-2xl w-full">
+                        {[
+                          "Recap my last project meeting",
+                          "Where did I see that design reference?",
+                          "What was the code snippet I copied?",
+                          "Find screenshots of my travel plan"
+                        ].map(suggestion => (
+                          <button 
+                            key={suggestion}
+                            onClick={() => { setInput(suggestion); }}
+                            className="p-5 rounded-2xl bg-[#1C1C1E] border border-white/5 text-white/50 text-sm font-semibold hover:bg-white/[0.05] hover:text-white hover:border-white/10 transition-all text-left"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    messages.filter(m => m.id !== 'welcome').map((msg) => (
+                      <MessageBubble key={msg.id} message={msg} />
+                    ))
+                  )}
+                  {isLoading && (
+                    <div className="flex flex-col items-center gap-4 py-8">
+                      <p className="text-white/40 text-sm font-semibold">Thinking...</p>
+                      <div className="flex gap-1">
+                        <div className="w-5 h-5 rounded-full bg-[#FF7890] animate-pulse" />
+                        <div className="w-5 h-5 rounded-full bg-[#B86CDE] animate-pulse" style={{ animationDelay: '150ms' }} />
+                        <div className="w-5 h-5 rounded-full bg-[var(--aqua)] animate-pulse" style={{ animationDelay: '300ms' }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Chat Input Area */}
+              <div className="px-4 pb-6 pt-3">
+                <div className="max-w-3xl mx-auto">
+                  <form 
+                    onSubmit={handleSubmit}
+                    className="flex items-end gap-3"
+                  >
+                    <div className="flex-1 relative">
+                      {selectedCapture && (
+                        <div className="absolute -top-14 left-0 flex items-center gap-2 px-3 py-2 bg-[#1C1C1E] border border-white/10 rounded-2xl">
+                          <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10">
+                            <img src={convertFileSrc(selectedCapture.path)} className="w-full h-full object-cover" />
+                          </div>
+                          <span className="text-[10px] font-bold text-[var(--aqua)] uppercase tracking-wider">Context</span>
+                          <button onClick={() => selectCapture(null)} className="p-1 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-colors">
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder="Ask questions"
+                        className="w-full bg-[#1C1C1E] border-none rounded-3xl px-6 py-4 text-base text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-[var(--aqua)]/30"
+                        autoFocus
+                      />
+                    </div>
+                    
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || isLoading}
+                      className="w-12 h-12 rounded-full bg-[#16484B] flex items-center justify-center disabled:opacity-30 transition-all hover:scale-105 active:scale-95 shrink-0"
+                    >
+                      <Send size={18} className="text-[var(--aqua)]" />
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* Panels */}
       <AnimatePresence>
         {isSyncOpen && <SyncPanel onClose={() => setIsSyncOpen(false)} />}
-      </AnimatePresence>
-
-      {/* Memory Vault Panel */}
-      <AnimatePresence>
         {isVaultOpen && <MemoryVaultPanel onClose={() => setIsVaultOpen(false)} />}
       </AnimatePresence>
-    </motion.div>
+      
+      <HistorySidebar />
+    </div>
   );
 }

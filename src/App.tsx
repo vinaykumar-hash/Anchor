@@ -44,7 +44,7 @@ function App() {
   }, []);
 
   return (
-    <div className="w-screen h-screen p-3 overflow-hidden bg-[var(--app-bg)] select-none">
+    <div className="w-screen h-screen overflow-hidden bg-[var(--app-bg)] select-none">
       <ChatInterface />
       <ToastNotification />
     </div>

@@ -51,14 +51,11 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
     setIsSyncing(true);
     setSyncResult(null);
 
-    // Strip port if user entered it (e.g. "192.168.1.7:8473" → "192.168.1.7")
     const rawInput = manualIp.trim();
     const ip = rawInput.includes(':') ? rawInput.split(':')[0] : rawInput;
     const port = 8473;
 
     try {
-      // Call our Rust bridge which calls Python
-      // Python handles the HTTP requests to bypass browser CSP/fetch blocks
       const resultStr = await invoke<string>('sync_with', { ip, port });
       const result = JSON.parse(resultStr);
 
@@ -83,7 +80,6 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
       await invoke('toggle_auto_sync', { enabled: newState });
     } catch (e) {
       console.error('Failed to toggle auto sync:', e);
-      // Revert if failed
       setAutoSyncEnabled(!newState);
     }
   };
@@ -93,7 +89,7 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-50 flex items-center justify-center bg-[#f7f5ef]/70 backdrop-blur-sm"
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
@@ -101,62 +97,62 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white/95 border border-black/[0.06] rounded-3xl p-6 w-[380px] shadow-2xl relative"
+        className="bg-[#1C1C1E] border border-white/10 rounded-3xl p-6 w-[380px] shadow-2xl relative"
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-[var(--muted)] hover:text-[var(--ink)]"
+          className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors"
         >
           <X size={16} />
         </button>
 
-        <h3 className="text-lg font-semibold text-[var(--ink)] mb-4 flex items-center gap-2">
-          <Wifi size={18} className="text-[var(--accent)]" />
+        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Wifi size={18} className="text-[var(--aqua)]" />
           Device Sync
         </h3>
 
         {/* This Device */}
-        <div className="bg-[#f4f1ea] border border-black/[0.04] p-4 rounded-2xl mb-4">
+        <div className="bg-white/5 border border-white/5 p-4 rounded-2xl mb-4">
           <div className="flex items-center gap-2 mb-1">
-            <Monitor size={14} className="text-[var(--accent)]" />
-            <span className="text-xs font-medium text-[var(--muted)]">This PC</span>
+            <Monitor size={14} className="text-[var(--aqua)]" />
+            <span className="text-xs font-medium text-white/50">This PC</span>
           </div>
           {isLoading ? (
-            <div className="flex items-center gap-2 text-[var(--muted)] text-sm">
+            <div className="flex items-center gap-2 text-white/40 text-sm">
               <Loader2 size={14} className="animate-spin" />
               Loading...
             </div>
           ) : syncStatus ? (
             <div>
-              <p className="text-sm text-[var(--ink)] font-medium">
+              <p className="text-sm text-white font-medium">
                 {syncStatus.ip}:{syncStatus.port}
               </p>
               <div className="flex justify-between items-end">
-                <p className="text-xs text-[var(--muted)]">
+                <p className="text-xs text-white/40">
                   {syncStatus.entryCount} memories stored
                 </p>
                 {syncStatus.pairedIp && (
                   <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-[var(--accent)] font-bold uppercase tracking-wider">Paired Device</span>
-                    <span className="text-[10px] text-[var(--muted)]">{syncStatus.pairedIp}</span>
+                    <span className="text-[10px] text-[var(--aqua)] font-bold uppercase tracking-wider">Paired Device</span>
+                    <span className="text-[10px] text-white/40">{syncStatus.pairedIp}</span>
                   </div>
                 )}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-[var(--muted)]">Failed to get status</p>
+            <p className="text-sm text-white/40">Failed to get status</p>
           )}
         </div>
 
         {/* Auto Sync Toggle */}
-        <div className="flex items-center justify-between bg-[#f4f1ea] border border-black/[0.04] p-3 rounded-2xl mb-4">
+        <div className="flex items-center justify-between bg-white/5 border border-white/5 p-3 rounded-2xl mb-4">
           <div className="flex flex-col">
-            <span className="text-sm font-medium text-[var(--ink)]">Auto Sync</span>
-            <span className="text-[10px] text-[var(--muted)]">Automatically sync with paired device</span>
+            <span className="text-sm font-medium text-white">Auto Sync</span>
+            <span className="text-[10px] text-white/40">Automatically sync with paired device</span>
           </div>
-          <button 
+          <button
             onClick={handleToggleAutoSync}
-            className={`w-10 h-5 rounded-full relative transition-colors ${autoSyncEnabled ? 'bg-[var(--accent)]' : 'bg-white/20'}`}
+            className={`w-10 h-5 rounded-full relative transition-colors ${autoSyncEnabled ? 'bg-[var(--aqua)]' : 'bg-white/20'}`}
           >
             <div className={`absolute top-0.5 bottom-0.5 w-4 rounded-full bg-white transition-transform ${autoSyncEnabled ? 'left-[22px]' : 'left-0.5'}`} />
           </button>
@@ -165,8 +161,8 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
         {/* Manual Connect */}
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <Smartphone size={14} className="text-[var(--accent)]" />
-            <span className="text-xs font-medium text-[var(--muted)]">
+            <Smartphone size={14} className="text-[var(--aqua)]" />
+            <span className="text-xs font-medium text-white/50">
               Connect to Device
             </span>
           </div>
@@ -176,12 +172,12 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
               value={manualIp}
               onChange={(e) => setManualIp(e.target.value)}
               placeholder="e.g. 192.168.1.7"
-              className="flex-1 bg-white border border-black/[0.06] focus:border-[var(--accent)] rounded-xl py-2 px-3 text-sm text-[var(--ink)] placeholder:text-[var(--muted)]/60 outline-none transition-all"
+              className="flex-1 bg-white/5 border border-white/10 focus:border-[var(--aqua)]/50 rounded-xl py-2 px-3 text-sm text-white placeholder:text-white/30 outline-none transition-all"
             />
             <button
               onClick={handleManualSync}
               disabled={isSyncing || !manualIp.trim()}
-              className="px-4 py-2 rounded-xl bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-colors flex items-center gap-2"
+              className="px-4 py-2 rounded-xl bg-[var(--aqua)] text-black text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-colors flex items-center gap-2"
             >
               {isSyncing ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -191,7 +187,7 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
               Sync
             </button>
           </div>
-          <p className="text-[10px] text-[var(--muted)] mt-1.5">
+          <p className="text-[10px] text-white/30 mt-1.5">
             Enter the IP shown on the Android app's Sync screen
           </p>
         </div>
@@ -199,11 +195,10 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
         {/* Sync Result */}
         {syncResult && (
           <div
-            className={`p-3 rounded-lg text-sm ${
-              syncResult.startsWith('✅')
+            className={`p-3 rounded-lg text-sm ${syncResult.startsWith('✅')
                 ? 'bg-green-500/10 border border-green-500/20 text-green-300'
                 : 'bg-red-500/10 border border-red-500/20 text-red-300'
-            }`}
+              }`}
           >
             {syncResult}
           </div>
