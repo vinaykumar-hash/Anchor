@@ -1,4 +1,4 @@
-# Anchor ⚓
+<img width="1080" height="412" alt="Frame 3" src="https://github.com/user-attachments/assets/88438580-9f87-400a-b5f5-a3a0f90dd466" />
 
 Anchor is an offline-first, humane digital memory assistant that continuously indexes what you see and makes it instantly searchable. Built with custom local AI models, it enables you to capture screenshots, index their contents using optical character recognition (OCR) and multimodal vision processing, and ask questions through a conversational RAG (Retrieval-Augmented Generation) assistant.
 
