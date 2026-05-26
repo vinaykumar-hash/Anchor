@@ -176,6 +176,8 @@ class AIManager:
                 n_threads=threads,
                 n_batch=512,
                 verbose=False,
+                use_mmap=True,
+                use_mlock=True,
             )
         return self._vision
 
