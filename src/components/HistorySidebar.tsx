@@ -37,7 +37,14 @@ export function HistorySidebar() {
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: 300, opacity: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className="absolute right-0 top-0 bottom-0 w-72 bg-black/40 backdrop-blur-2xl border-l border-white/10 flex flex-col z-40"
+          className="absolute right-0 top-0 bottom-0 w-72 flex flex-col z-40"
+          style={{
+            background: 'rgba(0, 0, 0, 0.45)',
+            backdropFilter: 'blur(24px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+            borderLeft: '1px solid rgba(255, 255, 255, 0.12)',
+            boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.4), inset 1px 0 0 rgba(255, 255, 255, 0.06)',
+          }}
         >
           <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5" data-tauri-drag-region>
             <div className="flex items-center gap-2 text-white/90 font-medium">

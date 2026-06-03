@@ -114,30 +114,12 @@ fn capture_screen(app: AppHandle) -> Result<CaptureInfo, String> {
     let filepath = captures_dir.join(&filename);
     
     image.save(&filepath).map_err(|e| e.to_string())?;
-    
-    // Auto-process the screenshot in the background
-    let app_clone = app.clone();
-    let filepath_clone = filepath.clone();
-    std::thread::spawn(move || {
-        let payload = serde_json::json!({
-            "action": "process",
-            "path": filepath_clone.to_string_lossy().to_string()
-        });
-        match communicate_with_sidecar(&app_clone, payload) {
-            Ok(resp) => {
-                eprintln!("[Anchor] Auto-process OK: {}", resp.trim());
-            }
-            Err(e) => {
-                eprintln!("[Anchor] Auto-process FAILED: {}", e);
-            }
-        }
-    });
-    
-    // Send a toast notification
+
+    // Send a native Windows notification
     let _ = app.notification()
         .builder()
         .title("Anchor")
-        .body("Screenshot captured and processing!")
+        .body("Screenshot captured! Add a note in the app.")
         .show();
 
     Ok(CaptureInfo {
@@ -145,6 +127,33 @@ fn capture_screen(app: AppHandle) -> Result<CaptureInfo, String> {
         filename,
         timestamp,
     })
+}
+
+#[tauri::command]
+fn process_capture_with_note(app: AppHandle, path: String, user_note: Option<String>) -> Result<String, String> {
+    let note = user_note.unwrap_or_default();
+    let app_clone = app.clone();
+    let path_clone = path.clone();
+    let note_clone = note.clone();
+    
+    // Process in background thread so we don't block the UI
+    std::thread::spawn(move || {
+        let payload = serde_json::json!({
+            "action": "process",
+            "path": path_clone,
+            "user_note": note_clone
+        });
+        match communicate_with_sidecar(&app_clone, payload) {
+            Ok(resp) => {
+                eprintln!("[Anchor] Process with note OK: {}", resp.trim());
+            }
+            Err(e) => {
+                eprintln!("[Anchor] Process with note FAILED: {}", e);
+            }
+        }
+    });
+    
+    Ok("Processing started".to_string())
 }
 
 #[tauri::command]
@@ -363,7 +372,12 @@ pub fn run() {
             app.global_shortcut().on_shortcut(capture_shortcut, move |app, shortcut, event| {
                 if event.state == ShortcutState::Pressed {
                     let _ = capture_screen(app.clone());
-                    // Notify frontend
+                    // Show and focus the app window so the note input is visible
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                    // Notify frontend to show the note input
                     let _ = app.emit("shortcut-capture", ());
                 }
             }).unwrap_or_else(|e| eprintln!("Warning: Failed to register capture shortcut: {}", e));
@@ -385,6 +399,7 @@ pub fn run() {
             capture_screen,
             get_captures,
             invoke_ai_processing,
+            process_capture_with_note,
             search_context,
             ask_agent,
             set_gpu_mode,

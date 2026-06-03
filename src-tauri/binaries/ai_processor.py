@@ -194,7 +194,7 @@ class AIManager:
         "This description will be used to answer questions about the user's activity later."
     )
 
-    def process_image(self, path: str) -> str:
+    def process_image(self, path: str, user_note: str = "") -> str:
         """Run vision model on a screenshot and store in LanceDB."""
         table = self._db()
         embedder = self._embedder()
@@ -218,6 +218,11 @@ class AIManager:
             desc = resp["choices"][0]["message"]["content"]
         except Exception as exc:
             desc = f"Auto-description failed for {Path(path).name}: {exc}"
+
+        # Append user note if provided — this makes the user's personal context
+        # searchable alongside the AI-generated vision description
+        if user_note and user_note.strip():
+            desc = desc + f"\n\n**User Note:** {user_note.strip()}"
 
         vec = embedder.encode(desc).tolist()
         table.add([{
@@ -336,7 +341,8 @@ def main():
 
             if action == "process":
                 path = req["path"]
-                desc = mgr.process_image(path)
+                user_note = req.get("user_note", "")
+                desc = mgr.process_image(path, user_note=user_note)
 
                 _send({"status": "success", "action": "process",
                        "path": path, "description": desc})

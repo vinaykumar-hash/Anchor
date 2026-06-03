@@ -155,13 +155,13 @@ export function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full bg-black text-white overflow-hidden">
-      
+
       {/* ─── Persistent Header ─── */}
       <header className="shrink-0 pt-6 pb-0">
         <div className="flex items-center justify-between mb-4 px-6" data-tauri-drag-region>
           <div className="flex items-center gap-3">
             {!isHomeView && (
-              <button 
+              <button
                 onClick={() => setIsHomeView(true)}
                 className="p-2 rounded-full hover:bg-white/10 transition-colors"
               >
@@ -175,7 +175,7 @@ export function ChatInterface() {
           </div>
 
           {/* 3-line menu button */}
-          <button 
+          <button
             onClick={() => setIsSettingsOpen(!isSettingsOpen)}
             className="w-10 h-10 rounded-full bg-[#2C2C2E] flex items-center justify-center hover:bg-[#3A3A3C] transition-colors"
           >
@@ -219,28 +219,35 @@ export function ChatInterface() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="absolute right-4 top-16 z-50 w-56 bg-[#2C2C2E] border border-white/10 rounded-2xl p-2 shadow-2xl"
+              className="absolute right-4 top-16 z-50 w-56 rounded-2xl p-2 shadow-2xl"
+              style={{
+                background: 'rgba(44, 44, 46, 0.55)',
+                backdropFilter: 'blur(24px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+              }}
             >
-              <button 
+              <button
                 onClick={() => { setIsSyncOpen(true); setIsSettingsOpen(false); }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 hover:bg-white/5 hover:text-white transition-all text-sm font-medium"
               >
                 <Wifi size={16} className="text-[var(--aqua)]" /> Sync Devices
               </button>
-              <button 
+              <button
                 onClick={() => { setIsVaultOpen(true); setIsSettingsOpen(false); }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 hover:bg-white/5 hover:text-white transition-all text-sm font-medium"
               >
                 <Database size={16} className="text-[var(--aqua)]" /> Memory Vault
               </button>
               <div className="w-full h-px bg-white/5 my-1" />
-              <button 
+              <button
                 onClick={toggleGpu}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${useGpu ? 'text-[var(--aqua)] bg-[var(--aqua)]/10' : 'text-white/70 hover:bg-white/5 hover:text-white'}`}
               >
                 <Cpu size={16} /> {useGpu ? 'GPU Mode' : 'CPU Mode'}
               </button>
-              <button 
+              <button
                 onClick={() => { toggleHistory(); setIsSettingsOpen(false); }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 hover:bg-white/5 hover:text-white transition-all text-sm font-medium"
               >
@@ -255,7 +262,7 @@ export function ChatInterface() {
       <main className="flex-1 relative overflow-hidden flex flex-col">
         <AnimatePresence mode="wait">
           {isHomeView ? (
-            <motion.div 
+            <motion.div
               key="home"
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -263,7 +270,7 @@ export function ChatInterface() {
               transition={{ duration: 0.4, ease: [0.2, 0.8, 0.2, 1] }}
               className="w-full h-full px-4 py-4 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-28"
             >
-              {/* Collections – Horizontal Scroll */}
+              {/* Collections – Horizontal Scroll
               <section>
                 <h2 className="text-lg font-semibold text-white mb-4">Collection</h2>
                 <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
@@ -290,36 +297,67 @@ export function ChatInterface() {
                     </motion.div>
                   ))}
                 </div>
-              </section>
+              </section> */}
 
               {/* All Memories – Actual captures from backend */}
               <section className="flex-1">
-                <h2 className="text-lg font-semibold text-white mb-4">All Memories</h2>
+                <h2 className="text-lg font-semibold text-white mb-8 text-center mt-4">All Memories</h2>
                 {homeCaptures.length > 0 ? (
-                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                     {homeCaptures.map((cap, i) => (
-                      <motion.div 
+                      <motion.div
                         key={cap.path}
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ delay: i * 0.03 }}
                         whileHover={{ scale: 1.03 }}
                         onClick={() => handleCaptureClick(cap)}
-                        className="aspect-square rounded-2xl bg-[#1C1C1E] border border-white/5 hover:border-white/10 transition-all cursor-pointer overflow-hidden"
+                        className="group relative aspect-square rounded-sm bg-[#1C1C1E] border border-white/5 hover:border-white/15 transition-all cursor-pointer overflow-hidden"
                       >
-                        <img 
-                          src={convertFileSrc(cap.path)} 
+                        <img
+                          src={convertFileSrc(cap.path)}
                           alt={cap.filename}
                           className="w-full h-full object-cover"
                           loading="lazy"
                         />
+                        {/* Glass overlay on hover */}
+                        <div
+                          className="absolute inset-0 flex flex-col justify-end p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                          style={{
+                            background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)',
+                          }}
+                        >
+                          <div
+                            className="rounded-xl px-3 py-2"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              backdropFilter: 'blur(16px)',
+                              WebkitBackdropFilter: 'blur(16px)',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                            }}
+                          >
+                            <p className="text-white text-xs font-semibold truncate leading-tight">
+                              {cap.filename.replace(/\.[^/.]+$/, '')}
+                            </p>
+                            <p className="text-white/50 text-[10px] mt-0.5 font-medium">
+                              {cap.timestamp
+                                ? new Date(cap.timestamp * 1000).toLocaleString(undefined, {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                                : 'Captured'}
+                            </p>
+                          </div>
+                        </div>
                       </motion.div>
                     ))}
                   </div>
                 ) : (
                   <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
-                      <div 
+                      <div
                         key={i}
                         className="aspect-square rounded-2xl bg-[#1C1C1E] border border-white/5"
                       >
@@ -335,19 +373,26 @@ export function ChatInterface() {
 
               {/* Ask Questions Button – Bottom */}
               <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-30">
-                <motion.button 
+                <motion.button
                   whileHover={{ scale: 1.05, y: -2 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => setIsHomeView(false)}
-                  className="flex items-center gap-3 px-8 py-4 rounded-full bg-[#E5E5E5] text-black border-2 border-[var(--aqua)] shadow-[0_10px_40px_rgba(111,209,215,0.15)] transition-all font-bold text-base"
+                  className="flex items-center gap-3 px-8 py-4 rounded-full text-white font-bold text-base transition-all"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255, 255, 255, 0.18)',
+                    boxShadow: '0 8px 32px rgba(111, 209, 215, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12)',
+                  }}
                 >
-                  <Sparkles size={20} className="text-[var(--aqua)]" />
+                  {/* <Sparkles size={18} className="text-[var(--aqua)]" /> */}
                   Ask questions
                 </motion.button>
               </div>
             </motion.div>
           ) : (
-            <motion.div 
+            <motion.div
               key="chat"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -355,7 +400,7 @@ export function ChatInterface() {
               className="w-full h-full flex flex-col"
             >
               {/* Chat Thread */}
-              <div 
+              <div
                 ref={scrollRef}
                 className="flex-1 overflow-y-auto px-4 pt-8 scroll-smooth custom-scrollbar pb-10"
               >
@@ -364,7 +409,7 @@ export function ChatInterface() {
                     <div className="h-full flex flex-col items-center justify-center text-center pt-24">
                       <h2 className="text-4xl font-bold text-white mb-4 tracking-tight">How can I help you remember?</h2>
                       <p className="text-white/30 text-lg max-w-md font-medium leading-relaxed">Search through your digital life, find lost moments, and ask questions about anything you've seen.</p>
-                      
+
                       <div className="mt-12 grid grid-cols-2 gap-3 max-w-2xl w-full">
                         {[
                           "Recap my last project meeting",
@@ -372,7 +417,7 @@ export function ChatInterface() {
                           "What was the code snippet I copied?",
                           "Find screenshots of my travel plan"
                         ].map(suggestion => (
-                          <button 
+                          <button
                             key={suggestion}
                             onClick={() => { setInput(suggestion); }}
                             className="p-5 rounded-2xl bg-[#1C1C1E] border border-white/5 text-white/50 text-sm font-semibold hover:bg-white/[0.05] hover:text-white hover:border-white/10 transition-all text-left"
@@ -403,7 +448,7 @@ export function ChatInterface() {
               {/* Chat Input Area */}
               <div className="px-4 pb-6 pt-3">
                 <div className="max-w-3xl mx-auto">
-                  <form 
+                  <form
                     onSubmit={handleSubmit}
                     className="flex items-end gap-3"
                   >
@@ -428,7 +473,7 @@ export function ChatInterface() {
                         autoFocus
                       />
                     </div>
-                    
+
                     <button
                       type="submit"
                       disabled={!input.trim() || isLoading}
@@ -449,7 +494,7 @@ export function ChatInterface() {
         {isSyncOpen && <SyncPanel onClose={() => setIsSyncOpen(false)} />}
         {isVaultOpen && <MemoryVaultPanel onClose={() => setIsVaultOpen(false)} />}
       </AnimatePresence>
-      
+
       <HistorySidebar />
     </div>
   );

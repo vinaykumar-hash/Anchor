@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ChatInterface } from './components/ChatInterface';
 import { ToastNotification } from './components/ToastNotification';
+import { CaptureNoteModal } from './components/CaptureNoteModal';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from './store/useAppStore';
 
 function App() {
-  const { showToast, addMessage, selectCapture } = useAppStore();
+  const { showToast, selectCapture } = useAppStore();
+  const [pendingCapturePath, setPendingCapturePath] = useState<string | null>(null);
 
   useEffect(() => {
     // Hide the default context menu in production
@@ -17,15 +19,14 @@ function App() {
     // Listen for global shortcut events from Rust
     const unlistenCapture = listen('shortcut-capture', async () => {
       // The Rust side handles the capture and saves it. 
-      // We can fetch the latest capture here.
+      // We fetch the latest capture and show the note modal.
       try {
         const captures = await invoke<any[]>('get_captures');
         if (captures && captures.length > 0) {
           const latest = captures[0];
-          showToast('Screenshot saved to context memory');
-          
-          // Optionally, automatically select the new capture
           selectCapture(latest);
+          // Show the note modal instead of immediately processing
+          setPendingCapturePath(latest.path);
         }
       } catch (e) {
         console.error("Failed to process new capture", e);
@@ -34,7 +35,6 @@ function App() {
 
     const unlistenToggle = listen('shortcut-toggle', () => {
       // The window visibility is handled by Rust.
-      // We could add sound effects or focus input here if needed.
     });
 
     return () => {
@@ -43,10 +43,51 @@ function App() {
     };
   }, []);
 
+  const handleNoteSubmit = async (note: string) => {
+    if (!pendingCapturePath) return;
+    const path = pendingCapturePath;
+    setPendingCapturePath(null);
+    
+    showToast(note ? 'Screenshot saved with your note!' : 'Screenshot saved to memory!');
+    
+    // Fire-and-forget: send to backend for AI processing with the user note
+    try {
+      await invoke('process_capture_with_note', { 
+        path, 
+        userNote: note || null 
+      });
+    } catch (e) {
+      console.error('Failed to process capture:', e);
+    }
+  };
+
+  const handleNoteSkip = async () => {
+    if (!pendingCapturePath) return;
+    const path = pendingCapturePath;
+    setPendingCapturePath(null);
+    
+    showToast('Screenshot saved to memory!');
+    
+    // Process without a note
+    try {
+      await invoke('process_capture_with_note', { 
+        path, 
+        userNote: null 
+      });
+    } catch (e) {
+      console.error('Failed to process capture:', e);
+    }
+  };
+
   return (
     <div className="w-screen h-screen overflow-hidden bg-[var(--app-bg)] select-none">
       <ChatInterface />
       <ToastNotification />
+      <CaptureNoteModal
+        capturePath={pendingCapturePath}
+        onSubmit={handleNoteSubmit}
+        onSkip={handleNoteSkip}
+      />
     </div>
   );
 }

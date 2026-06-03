@@ -97,7 +97,14 @@ export function SyncPanel({ onClose }: SyncPanelProps) {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-[#1C1C1E] border border-white/10 rounded-3xl p-6 w-[380px] shadow-2xl relative"
+        className="rounded-3xl p-6 w-[380px] shadow-2xl relative"
+        style={{
+          background: 'rgba(28, 28, 30, 0.6)',
+          backdropFilter: 'blur(24px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
+        }}
       >
         <button
           onClick={onClose}
